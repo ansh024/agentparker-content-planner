@@ -14,6 +14,7 @@
     "docs": "echo 'See docs/ directory: PRD, ARCHITECTURE, PHASES, LEARNING, DECISIONS'"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.108.2",
     "openai": "^6.0.0",
     "playwright": "^1.61.0"
   }

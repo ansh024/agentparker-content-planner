@@ -3,7 +3,7 @@
 [cmd]: https://commandcode.ai/
 
 # architecture
-- Use last30days-skill (mvanhorn/last30days-skill) as the social listening engine for cross-platform topic research. Confidence: 0.70
+- Use Firecrawl REST API (api.firecrawl.dev/v1/search) as the social listening engine instead of last30days-skill — call directly from Vercel serverless functions, no external worker needed. Confidence: 0.75
 - Include a karpathy-style skills/learnings system in the project repo structure for continuous learning loops. Confidence: 0.70
 
 # workflow
