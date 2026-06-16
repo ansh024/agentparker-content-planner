@@ -1,4 +1,4 @@
-import { logger } from "./_logger.js";
+import { logger } from "../_logger.js";
 
 const log = logger("instagram-webhook");
 
