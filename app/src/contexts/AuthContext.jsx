@@ -8,18 +8,12 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
 
   useEffect(() => {
     log.debug("Initializing auth session");
-
     supabase.auth.getSession().then(({ data: { session }, error: err }) => {
-      if (err) {
-        log.error("Failed to get session", { error: err });
-        setError("Could not restore your session. Please log in again.");
-      } else {
-        log.info(session ? "Session restored" : "No active session");
-      }
+      if (err) log.error("Failed to get session", { error: err });
+      else log.info(session ? "Session restored" : "No active session");
       setSession(session);
       setLoading(false);
     });
@@ -27,45 +21,45 @@ export function AuthProvider({ children }) {
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       log.info("Auth state changed", { event });
       setSession(session);
-
-      if (event === "SIGNED_OUT") {
-        log.debug("User signed out — clearing state");
-      }
-      if (event === "TOKEN_REFRESHED") {
-        log.debug("Auth token refreshed");
-      }
     });
 
-    return () => {
-      listener?.subscription.unsubscribe();
-    };
+    return () => listener?.subscription.unsubscribe();
   }, []);
 
-  const signIn = async (email) => {
-    log.debug("Initiating magic link sign-in");
+  const signInWithPassword = async (email, password) => {
+    log.info("Password sign-in attempt", { email });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    return { data, error };
+  };
+
+  const signUp = async (email, password) => {
+    log.info("Sign-up attempt", { email });
+    const { data, error } = await supabase.auth.signUp({
+      email, password,
+      options: { emailRedirectTo: window.location.origin + "/inbox" },
+    });
+    return { data, error };
+  };
+
+  const signInWithMagicLink = async (email) => {
+    log.debug("Magic link sign-in attempt");
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: {
-        emailRedirectTo: window.location.origin + "/inbox",
-      },
+      options: { emailRedirectTo: window.location.origin + "/inbox" },
     });
     return { error };
   };
 
   const signOut = async () => {
     log.info("Signing out");
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      log.error("Sign-out failed", { error });
-    }
+    await supabase.auth.signOut();
   };
 
   const value = {
-    session,
-    user: session?.user ?? null,
-    loading,
-    error,
-    signIn,
+    session, user: session?.user ?? null, loading,
+    signIn: signInWithMagicLink,
+    signInWithPassword,
+    signUp,
     signOut,
   };
 
