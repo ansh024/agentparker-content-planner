@@ -27,7 +27,5 @@ Thumbs.db
 docs/journal/weekly-*
 docs/journal/applied/
 
-# Worker data
-worker/data/
-LAST30DAYS_MEMORY_DIR/
-~/Documents/Last30Days/
+# Test screenshots
+scripts/tests/screenshots/
