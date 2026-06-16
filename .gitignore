@@ -1,0 +1,33 @@
+node_modules/
+.env
+.firecrawl/
+
+# Build outputs
+app/dist/
+app/.vite/
+
+# Python
+worker/venv/
+worker/__pycache__/
+worker/*.pyc
+
+# Supabase
+supabase/.temp/
+supabase/.branches/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Learning journal
+docs/journal/weekly-*
+docs/journal/applied/
+
+# Worker data
+worker/data/
+LAST30DAYS_MEMORY_DIR/
+~/Documents/Last30Days/

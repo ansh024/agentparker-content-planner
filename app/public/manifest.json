@@ -1,0 +1,14 @@
+{
+  "name": "ContentPlanner",
+  "short_name": "Planner",
+  "description": "Never lose a content idea again. Capture, plan, and create.",
+  "start_url": "/inbox",
+  "display": "standalone",
+  "background_color": "#f9fafb",
+  "theme_color": "#4f46e5",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

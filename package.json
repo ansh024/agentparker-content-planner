@@ -1,0 +1,20 @@
+{
+  "name": "content-planner",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "chat": "node scripts/deepseek.mjs",
+    "models": "node scripts/list-models.mjs",
+    "learn": "node scripts/learning/index.mjs",
+    "learn:capture": "node scripts/learning/capture.mjs",
+    "learn:review": "node scripts/learning/review.mjs",
+    "learn:adapt": "node scripts/learning/adapt.mjs",
+    "learn:taste": "node scripts/learning/taste.mjs",
+    "dev": "echo 'Run: cd app && npm run dev'",
+    "docs": "echo 'See docs/ directory: PRD, ARCHITECTURE, PHASES, LEARNING, DECISIONS'"
+  },
+  "dependencies": {
+    "openai": "^6.0.0",
+    "playwright": "^1.61.0"
+  }
+}
