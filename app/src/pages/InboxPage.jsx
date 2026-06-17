@@ -149,7 +149,7 @@ export default function InboxPage() {
         }).eq("id", ideaId);
       }
     } catch (e) {
-      log.debug("Enrichment skipped (no OpenRouter key or fetch failed)", { error: e.message });
+      log.debug("Enrichment skipped (no ANTHROPIC_API_KEY or fetch failed)", { error: e.message });
     }
   };
 

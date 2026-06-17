@@ -1,8 +1,15 @@
+import { createClient } from "@supabase/supabase-js";
 import { w } from "../_w.js";
 
 export default async function handler(nodeReq, nodeRes) {
   const { req, res } = w(nodeReq, nodeRes);
   if (req.method !== "POST") return res.json({ error: "Method not allowed" }, 405);
+
+  const authHeader = req.headers.get("authorization");
+  if (!authHeader?.startsWith("Bearer ")) return res.json({ error: "Please log in to continue." }, 401);
+  const anonClient = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+  const { data: { user } } = await anonClient.auth.getUser(authHeader.replace("Bearer ", ""));
+  if (!user) return res.json({ error: "Session expired." }, 401);
 
   const body = await req.json();
   const url = body?.url;
@@ -20,15 +27,17 @@ export default async function handler(nodeReq, nodeRes) {
   } catch (e) { /* ignore */ }
 
   let summary = null;
-  const orKey = process.env.OPENROUTER_API_KEY;
-  if (orKey && ogData.description) {
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (anthropicKey && (ogData.title || ogData.description)) {
     try {
-      const ai = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${orKey}` },
-        body: JSON.stringify({ model: "anthropic/claude-3.5-haiku", messages: [{ role: "user", content: `Summarize in 2 sentences for a content creator:\nTitle: ${ogData.title}\nDescription: ${ogData.description}` }], max_tokens: 100 }),
+      const { default: Anthropic } = await import("@anthropic-ai/sdk");
+      const client = new Anthropic({ apiKey: anthropicKey });
+      const msg = await client.messages.create({
+        model: "claude-haiku-4-5",
+        max_tokens: 120,
+        messages: [{ role: "user", content: `Summarize in 2 sentences for a content creator:\nTitle: ${ogData.title || ""}\nDescription: ${ogData.description || ""}` }],
       });
-      const j = await ai.json();
-      summary = j.choices?.[0]?.message?.content || null;
+      summary = msg.content[0]?.text || null;
     } catch (e) { /* ignore */ }
   }
 

@@ -27,6 +27,8 @@ export default function TopicsPage() {
   const [expandedHits, setExpandedHits] = useState({});
   const [loadingHits, setLoadingHits] = useState({});
   const [runningSearch, setRunningSearch] = useState({});
+  const [analyzingTopic, setAnalyzingTopic] = useState({});
+  const [analysisResults, setAnalysisResults] = useState({});
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
@@ -113,6 +115,46 @@ export default function TopicsPage() {
     } finally {
       setRunningSearch((prev) => ({ ...prev, [topic.id]: false }));
     }
+  };
+
+  const analyzeWithAI = async (topic) => {
+    setAnalyzingTopic((prev) => ({ ...prev, [topic.id]: true }));
+    setAnalysisResults((prev) => ({ ...prev, [topic.id]: null }));
+    try {
+      const session = await supabase.auth.getSession();
+      const res = await fetch("/api/listening/analyze", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.data.session.access_token}`,
+        },
+        body: JSON.stringify({ topicId: topic.id, topicName: topic.name }),
+      });
+      const result = await res.json();
+      if (result.ideas) {
+        setAnalysisResults((prev) => ({ ...prev, [topic.id]: result }));
+        if (!expandedHits[topic.id]) fetchHits(topic.id);
+      } else {
+        showToast(result.error || "Analysis failed. Try again.", "error");
+      }
+    } catch {
+      showToast("Analysis failed. Try again.", "error");
+    } finally {
+      setAnalyzingTopic((prev) => ({ ...prev, [topic.id]: false }));
+    }
+  };
+
+  const saveIdeaFromAnalysis = async (idea, topicId) => {
+    const { error: err } = await supabase.from("ideas").insert({
+      user_id: user.id,
+      source_url: "ai-generated",
+      source_platform: idea.platform || "manual",
+      context_text: `${idea.angle} ${idea.why}`,
+      title: idea.title,
+      status: "new",
+    });
+    if (err) showToast("Couldn't save idea.", "error");
+    else showToast("Idea saved!", "success");
   };
 
   const createTopic = async (e) => {
@@ -251,6 +293,8 @@ export default function TopicsPage() {
             const isExpanded = expandedHits[topic.id];
             const isLoadingHits = loadingHits[topic.id];
             const isRunning = runningSearch[topic.id];
+            const isAnalyzing = analyzingTopic[topic.id];
+            const analysis = analysisResults[topic.id];
 
             return (
               <div key={topic.id} className="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
@@ -272,6 +316,11 @@ export default function TopicsPage() {
                       )}
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">
+                      <button onClick={() => analyzeWithAI(topic)} disabled={isAnalyzing || isRunning}
+                        className="rounded-lg p-1.5 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 disabled:opacity-50 min-w-[32px] min-h-[32px]"
+                        title="Generate ideas with AI">
+                        <Sparkles className={`h-4 w-4 ${isAnalyzing ? "animate-pulse" : ""}`} />
+                      </button>
                       <button onClick={() => runSearchNow(topic)} disabled={isRunning}
                         className="rounded-lg p-1.5 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/20 disabled:opacity-50 min-w-[32px] min-h-[32px]"
                         title="Search now">
@@ -296,6 +345,53 @@ export default function TopicsPage() {
                     {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                   </button>
                 </div>
+
+                {/* AI Analysis Results */}
+                {isAnalyzing && (
+                  <div className="px-4 pb-3">
+                    <div className="rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-900/20 p-3 text-xs text-purple-700 dark:text-purple-300 flex items-center gap-2">
+                      <Sparkles className="h-3.5 w-3.5 animate-pulse flex-shrink-0" />
+                      Analyzing discussions and generating content ideas…
+                    </div>
+                  </div>
+                )}
+                {analysis && !isAnalyzing && (
+                  <div className="border-t dark:border-gray-700 px-4 py-3 bg-purple-50/50 dark:bg-purple-900/10">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-xs font-semibold text-purple-900 dark:text-purple-200 flex items-center gap-1">
+                        <Sparkles className="h-3 w-3" /> AI-Generated Ideas
+                      </h4>
+                      <button onClick={() => setAnalysisResults((prev) => ({ ...prev, [topic.id]: null }))}
+                        className="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">dismiss</button>
+                    </div>
+                    {analysis.themes?.length > 0 && (
+                      <div className="mb-3">
+                        <p className="text-[10px] text-purple-700 dark:text-purple-400 font-medium mb-1">Trending themes</p>
+                        <div className="flex flex-wrap gap-1">
+                          {analysis.themes.map((t, i) => (
+                            <span key={i} className="rounded-full bg-purple-100 dark:bg-purple-900/40 px-2 py-0.5 text-[10px] text-purple-700 dark:text-purple-300">{t}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                      {analysis.ideas.map((idea, i) => (
+                        <div key={i} className="rounded-lg border border-purple-200 dark:border-purple-800 bg-white dark:bg-gray-800 p-2.5">
+                          <div className="flex items-start justify-between gap-2 mb-1">
+                            <p className="text-xs font-medium text-gray-900 dark:text-white flex-1">{idea.title}</p>
+                            <span className="text-[10px] uppercase text-purple-500 dark:text-purple-400 flex-shrink-0">{idea.platform}</span>
+                          </div>
+                          <p className="text-[10px] text-gray-500 dark:text-gray-400 mb-1">{idea.angle}</p>
+                          <p className="text-[10px] text-gray-400 dark:text-gray-500 italic mb-2">{idea.why}</p>
+                          <button onClick={() => saveIdeaFromAnalysis(idea, topic.id)}
+                            className="inline-flex items-center gap-1 rounded bg-purple-100 dark:bg-purple-900/30 px-2 py-0.5 text-[10px] font-medium text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800 min-h-[28px]">
+                            <Lightbulb className="h-3 w-3" /> Save to inbox
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Hits list */}
                 {isExpanded && (
