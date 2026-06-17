@@ -11,6 +11,7 @@ import BoardPage from "./pages/BoardPage";
 import CalendarPage from "./pages/CalendarPage";
 import TopicsPage from "./pages/TopicsPage";
 import SettingsPage from "./pages/SettingsPage";
+import SharePage from "./pages/SharePage";
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -36,6 +37,7 @@ export default function App() {
             <ToastProvider>
               <Routes>
                 <Route path="/login" element={<LoginPage />} />
+                <Route path="/share" element={<SharePage />} />
                 <Route
                   element={
                     <ProtectedRoute>

@@ -32,20 +32,20 @@ export function AuthProvider({ children }) {
     return { data, error };
   };
 
-  const signUp = async (email, password) => {
+  const signUp = async (email, password, redirectTo = "/inbox") => {
     log.info("Sign-up attempt", { email });
     const { data, error } = await supabase.auth.signUp({
       email, password,
-      options: { emailRedirectTo: window.location.origin + "/inbox" },
+      options: { emailRedirectTo: window.location.origin + redirectTo },
     });
     return { data, error };
   };
 
-  const signInWithMagicLink = async (email) => {
+  const signInWithMagicLink = async (email, redirectTo = "/inbox") => {
     log.debug("Magic link sign-in attempt");
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: window.location.origin + "/inbox" },
+      options: { emailRedirectTo: window.location.origin + redirectTo },
     });
     return { error };
   };

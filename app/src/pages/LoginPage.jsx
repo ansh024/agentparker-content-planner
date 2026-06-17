@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { logger } from "../lib/logger";
 import { friendlyError } from "../lib/errors";
@@ -13,8 +14,16 @@ export default function LoginPage() {
   const [mode, setMode] = useState("password"); // "password" | "magic" | "signup"
   const [sent, setSent] = useState(false);
   const [error, setError] = useState(null);
-  const { signIn, signInWithPassword, signUp } = useAuth();
+  const { user, signIn, signInWithPassword, signUp } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const rawNextPath = searchParams.get("next") || "/inbox";
+  const nextPath = rawNextPath.startsWith("/") && !rawNextPath.startsWith("//") ? rawNextPath : "/inbox";
+
+  useEffect(() => {
+    if (user) navigate(nextPath, { replace: true });
+  }, [navigate, nextPath, user]);
 
   const handlePasswordLogin = async (e) => {
     e.preventDefault();
@@ -54,7 +63,7 @@ export default function LoginPage() {
     setLoading(true);
     log.info("Sign-up attempt", { email: email.trim() });
 
-    const { error: err } = await signUp(email.trim(), password);
+    const { error: err } = await signUp(email.trim(), password, nextPath);
     if (err) {
       log.error("Sign-up failed", { error: err });
       if (err.message?.includes("already registered")) {
@@ -75,7 +84,7 @@ export default function LoginPage() {
     if (!email.trim()) { setError(friendlyError("AUTH_NO_EMAIL")); return; }
     setLoading(true);
     log.info("Magic link attempt", { email: email.trim() });
-    const { error: err } = await signIn(email.trim());
+    const { error: err } = await signIn(email.trim(), nextPath);
     if (err) {
       log.error("Magic link failed", { error: err });
       setError("Couldn't send the login link. Try password login instead.");
