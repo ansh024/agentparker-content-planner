@@ -72,8 +72,13 @@ def run_last30days(topic: dict[str, Any], deep: bool = False) -> Tuple[dict[str,
 
     env = os.environ.copy()
     env.setdefault("LAST30DAYS_MEMORY_DIR", str(memory_dir))
-    env.setdefault("LAST30DAYS_REASONING_PROVIDER", "openrouter")
+    env.setdefault(
+        "LAST30DAYS_REASONING_PROVIDER",
+        "openrouter" if env.get("OPENROUTER_API_KEY") else "auto",
+    )
     env.setdefault("INCLUDE_SOURCES", "reddit,hackernews,youtube,github,polymarket,grounding")
+    env.setdefault("BIRD_DISABLE_BROWSER_COOKIES", "1")
+    env.setdefault("FROM_BROWSER", "none")
     if env.get("SCRAPECREATORS_API_KEY"):
         env["INCLUDE_SOURCES"] = env["INCLUDE_SOURCES"] + ",tiktok,instagram,threads,pinterest"
 

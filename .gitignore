@@ -8,6 +8,7 @@ app/.vite/
 
 # Python
 worker/venv/
+worker/.venv/
 worker/__pycache__/
 worker/*.pyc
 
