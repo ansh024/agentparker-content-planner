@@ -6,7 +6,7 @@ import { supabase } from "../lib/supabase";
 import { logger } from "../lib/logger";
 import {
   Inbox, CalendarDays, Radio, Settings, LogOut,
-  Menu, X, Plus, LayoutGrid, Keyboard,
+  Menu, X, Plus, LayoutGrid, Keyboard, Download,
 } from "lucide-react";
 
 const log = logger("AppLayout");
@@ -25,6 +25,8 @@ export default function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showQuickCapture, setShowQuickCapture] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showInstallHelp, setShowInstallHelp] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState(null);
   const [quickUrl, setQuickUrl] = useState("");
   const [quickNote, setQuickNote] = useState("");
   const [quickSaving, setQuickSaving] = useState(false);
@@ -54,6 +56,15 @@ export default function AppLayout() {
   useEffect(() => setSidebarOpen(false), [location.pathname]);
 
   useEffect(() => {
+    const beforeInstallPrompt = (event) => {
+      event.preventDefault();
+      setInstallPrompt(event);
+    };
+    window.addEventListener("beforeinstallprompt", beforeInstallPrompt);
+    return () => window.removeEventListener("beforeinstallprompt", beforeInstallPrompt);
+  }, []);
+
+  useEffect(() => {
     const handler = (e) => {
       if (e.key === "Escape") { setShowQuickCapture(false); setShowShortcuts(false); }
       if (e.key === "n" && !e.ctrlKey && !e.metaKey && document.activeElement === document.body) { setShowQuickCapture(true); }
@@ -74,6 +85,23 @@ export default function AppLayout() {
     if (error) showToast("Couldn't save idea.", "error");
     else { showToast("Idea saved!", "success"); setQuickUrl(""); setQuickNote(""); setShowQuickCapture(false); }
     setQuickSaving(false);
+  };
+
+  const installApp = async () => {
+    const isStandalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
+    if (isStandalone) {
+      showToast("ContentPlanner is already installed.", "info");
+      return;
+    }
+    if (!installPrompt) {
+      setShowInstallHelp(true);
+      return;
+    }
+
+    installPrompt.prompt();
+    const choice = await installPrompt.userChoice;
+    setInstallPrompt(null);
+    if (choice.outcome === "accepted") showToast("ContentPlanner installed.", "success");
   };
 
   return (
@@ -112,6 +140,9 @@ export default function AppLayout() {
           <button onClick={() => setShowShortcuts(true)} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">
             <Keyboard className="h-4 w-4" /> Shortcuts
           </button>
+          <button onClick={installApp} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">
+            <Download className="h-4 w-4" /> Install app
+          </button>
           <button onClick={signOut} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">
             <LogOut className="h-4 w-4" /> Sign out
           </button>
@@ -123,7 +154,14 @@ export default function AppLayout() {
         <div className="sticky top-0 z-30 flex items-center justify-between bg-white dark:bg-gray-900 border-b dark:border-gray-800 px-4 py-3 lg:hidden">
           <button onClick={() => setSidebarOpen(true)} className="p-2 -ml-2 text-gray-600 dark:text-gray-400 min-w-[44px] min-h-[44px] flex items-center"><Menu className="h-6 w-6" /></button>
           <span className="text-sm font-bold text-gray-900 dark:text-white">ContentPlanner</span>
-          <button onClick={() => setShowQuickCapture(true)} className="p-2 -mr-2 text-brand-600 min-w-[44px] min-h-[44px] flex items-center"><Plus className="h-6 w-6" /></button>
+          <div className="flex items-center">
+            <button onClick={installApp} className="p-2 text-gray-600 dark:text-gray-400 min-w-[44px] min-h-[44px] flex items-center" aria-label="Install app">
+              <Download className="h-5 w-5" />
+            </button>
+            <button onClick={() => setShowQuickCapture(true)} className="p-2 -mr-2 text-brand-600 min-w-[44px] min-h-[44px] flex items-center" aria-label="Quick capture">
+              <Plus className="h-6 w-6" />
+            </button>
+          </div>
         </div>
         <Outlet />
       </main>
@@ -156,6 +194,32 @@ export default function AppLayout() {
               <textarea value={quickNote} onChange={(e) => setQuickNote(e.target.value)} placeholder="Add a quick note..." rows={2} className="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white px-3 py-2 text-sm" />
               <button type="submit" disabled={quickSaving || !quickUrl.trim()} className="w-full rounded-lg bg-brand-600 py-2.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50">{quickSaving ? "Saving..." : "Save idea"}</button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Install help modal */}
+      {showInstallHelp && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/30" onClick={() => setShowInstallHelp(false)} />
+          <div className="relative bg-white dark:bg-gray-900 rounded-2xl w-full max-w-md p-5 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base font-semibold text-gray-900 dark:text-white">Install ContentPlanner</h2>
+              <button onClick={() => setShowInstallHelp(false)} className="p-1 text-gray-400"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="space-y-4 text-sm text-gray-600 dark:text-gray-400">
+              <div>
+                <p className="font-medium text-gray-900 dark:text-white">Android Chrome</p>
+                <p className="mt-1">Open the browser menu, then tap Add to Home screen or Install app.</p>
+              </div>
+              <div>
+                <p className="font-medium text-gray-900 dark:text-white">iPhone Safari</p>
+                <p className="mt-1">Tap Share, then Add to Home Screen.</p>
+              </div>
+            </div>
+            <button onClick={() => setShowInstallHelp(false)} className="mt-5 w-full rounded-lg bg-brand-600 py-2.5 text-sm font-medium text-white hover:bg-brand-700">
+              Got it
+            </button>
           </div>
         </div>
       )}
