@@ -5,46 +5,122 @@ import { supabase } from "../lib/supabase";
 import { logger } from "../lib/logger";
 import { friendlyError, mapSupabaseError } from "../lib/errors";
 import { usePullToRefresh } from "../hooks/usePullToRefresh";
-import { Plus, Pause, Play, Trash2, ExternalLink, RefreshCw, Sparkles, Lightbulb, ChevronDown, ChevronRight } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  FileText,
+  Lightbulb,
+  LoaderCircle,
+  Pause,
+  Play,
+  Plus,
+  Search,
+  Sparkles,
+  Trash2,
+  X,
+} from "lucide-react";
+import {
+  createTopicAndSearch,
+  getLatestRun,
+  getTopicStatus,
+  groupByTopic,
+  mergeTopicHits,
+} from "../lib/topics";
 
 const log = logger("TopicsPage");
 const FREQUENCIES = ["daily", "weekly"];
 
-function getTopicStatus(topic) {
-  if (!topic.active) return { label: "Paused", color: "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400" };
-  if (!topic.last_run_at) return { label: "Ready to run", color: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300" };
-  const hoursSince = (Date.now() - new Date(topic.last_run_at).getTime()) / 3600000;
-  if (hoursSince < 24) return { label: "Up to date", color: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300" };
-  if (hoursSince < 48) return { label: "Due soon", color: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300" };
-  return { label: "Overdue", color: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300" };
+function parseCsv(value) {
+  return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function firstCitation(source) {
+  const citations = source?.evidence || source?.source_citations || source?.metadata?.source_urls || [];
+  return Array.isArray(citations) ? citations.find((item) => item?.url || typeof item === "string") : null;
+}
+
+function citationUrl(citation) {
+  if (!citation) return "";
+  return typeof citation === "string" ? citation : citation.url;
 }
 
 export default function TopicsPage() {
   const { user } = useAuth();
   const { showToast } = useToast();
   const [topics, setTopics] = useState([]);
+  const [runs, setRuns] = useState({});
+  const [briefs, setBriefs] = useState({});
+  const [clusters, setClusters] = useState({});
   const [hits, setHits] = useState({});
-  const [expandedHits, setExpandedHits] = useState({});
+  const [expanded, setExpanded] = useState({});
+  const [expandedRaw, setExpandedRaw] = useState({});
   const [loadingHits, setLoadingHits] = useState({});
   const [runningSearch, setRunningSearch] = useState({});
-  const [analyzingTopic, setAnalyzingTopic] = useState({});
-  const [analysisResults, setAnalysisResults] = useState({});
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
-  const [name, setName] = useState("");
-  const [keywords, setKeywords] = useState("");
-  const [frequency, setFrequency] = useState("daily");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [form, setForm] = useState({
+    name: "",
+    audience: "",
+    contentFormat: "short-form video",
+    keywords: "",
+    competitors: "",
+    platformFocus: "YouTube, Instagram, TikTok",
+    frequency: "daily",
+  });
+
+  const updateForm = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
 
   const fetchTopics = useCallback(async () => {
-    log.debug("Fetching topics");
-    const { data, error: err } = await supabase
-      .from("listening_topics").select("*").eq("user_id", user.id)
+    if (!user) return;
+    log.debug("Fetching listening dashboard data");
+
+    const topicsReq = supabase
+      .from("listening_topics")
+      .select("*")
+      .eq("user_id", user.id)
       .order("created_at", { ascending: false });
-    if (err) setError(friendlyError(mapSupabaseError(err, "load-topics")));
-    else { setTopics(data || []); setError(null); }
+
+    const runsReq = supabase
+      .from("listening_runs")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(80);
+
+    const briefsReq = supabase
+      .from("listening_briefs")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(40);
+
+    const clustersReq = supabase
+      .from("listening_clusters")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("score", { ascending: false, nullsFirst: false })
+      .limit(120);
+
+    const [topicsRes, runsRes, briefsRes, clustersRes] = await Promise.all([topicsReq, runsReq, briefsReq, clustersReq]);
+
+    if (topicsRes.error) {
+      setError(friendlyError(mapSupabaseError(topicsRes.error, "load-topics")));
+    } else {
+      setTopics(topicsRes.data || []);
+      setError(null);
+    }
+
+    if (!runsRes.error) setRuns(groupByTopic(runsRes.data || []));
+    if (!briefsRes.error) {
+      const groupedBriefs = groupByTopic(briefsRes.data || []);
+      setBriefs(Object.fromEntries(Object.entries(groupedBriefs).map(([topicId, rows]) => [topicId, rows[0]])));
+    }
+    if (!clustersRes.error) setClusters(groupByTopic(clustersRes.data || []));
+
     setLoading(false);
   }, [user]);
 
@@ -52,125 +128,125 @@ export default function TopicsPage() {
 
   const { containerRef, refreshing } = usePullToRefresh(fetchTopics);
 
-  const fetchHits = async (topicId) => {
-    setExpandedHits((prev) => ({ ...prev, [topicId]: !prev[topicId] }));
-    if (!expandedHits[topicId]) {
-      setLoadingHits((prev) => ({ ...prev, [topicId]: true }));
-      const { data } = await supabase
-        .from("listening_hits").select("*").eq("topic_id", topicId)
-        .order("engagement_score", { ascending: false }).limit(30);
-      setHits((prev) => ({ ...prev, [topicId]: data || [] }));
-      setLoadingHits((prev) => ({ ...prev, [topicId]: false }));
-    }
+  const loadHits = async (topicId) => {
+    setLoadingHits((prev) => ({ ...prev, [topicId]: true }));
+    const { data } = await supabase
+      .from("listening_hits")
+      .select("*")
+      .eq("topic_id", topicId)
+      .order("last_seen_at", { ascending: false, nullsFirst: false })
+      .order("captured_at", { ascending: false })
+      .limit(80);
+    setHits((prev) => ({ ...prev, [topicId]: mergeTopicHits(prev[topicId], data || []) }));
+    setLoadingHits((prev) => ({ ...prev, [topicId]: false }));
   };
 
-  const captureAsIdea = async (hit) => {
-    const { error: err } = await supabase.from("ideas").insert({
-      user_id: user.id, source_url: hit.source_url, source_platform: hit.platform,
-      context_text: hit.snippet || hit.title || "",
-      title: hit.title, status: "new",
-    });
-    if (err) showToast("Couldn't save as idea.", "error");
-    else {
-      showToast("Idea saved from listening!", "success");
-      // Update the hit to mark it captured (optional UI change)
-      setHits((prev) => {
-        const topicHits = prev[hit.topic_id]?.map((h) =>
-          h.id === hit.id ? { ...h, _captured: true } : h
-        );
-        return { ...prev, [hit.topic_id]: topicHits };
-      });
-    }
+  const toggleExpanded = async (topicId) => {
+    const nextExpanded = !expanded[topicId];
+    setExpanded((prev) => ({ ...prev, [topicId]: nextExpanded }));
+    if (nextExpanded && !hits[topicId]) await loadHits(topicId);
   };
 
-  const runSearchNow = async (topic) => {
+  const toggleRaw = async (topicId) => {
+    const nextExpanded = !expandedRaw[topicId];
+    setExpandedRaw((prev) => ({ ...prev, [topicId]: nextExpanded }));
+    if (nextExpanded && !hits[topicId]) await loadHits(topicId);
+  };
+
+  const runSearchNow = async (topic, deep = false) => {
     setRunningSearch((prev) => ({ ...prev, [topic.id]: true }));
-    log.info("Running search for topic", { id: topic.id, name: topic.name });
+    setExpanded((prev) => ({ ...prev, [topic.id]: true }));
+    log.info("Queuing creator research for topic", { id: topic.id, name: topic.name, deep });
 
     try {
       const session = await supabase.auth.getSession();
+      const token = session.data.session?.access_token;
+      if (!token) throw new Error("Please log in to continue.");
       const res = await fetch("/api/listening/run", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${session.data.session.access_token}`,
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ topicId: topic.id, keywords: topic.keywords, platforms: topic.platforms || ["reddit", "web"] }),
+        body: JSON.stringify({ topicId: topic.id, deep }),
       });
 
       const result = await res.json();
-      if (result.ok) {
-        showToast(result.message, "success");
-        fetchTopics(); // Refresh to get updated last_run_at
-        if (expandedHits[topic.id]) {
-          setExpandedHits((prev) => ({ ...prev, [topic.id]: false }));
-          setTimeout(() => fetchHits(topic.id), 500);
-        }
-      } else {
-        showToast(result.error || "Search failed. Check API key.", "error");
+      if (!res.ok || !result.ok) {
+        showToast(result.error || "Research failed to queue.", "error");
+        return;
       }
+
+      showToast(result.message || "Research run queued.", result.workerError ? "warning" : "success");
+      await fetchTopics();
+      await loadHits(topic.id);
     } catch (err) {
-      log.error("Search run failed", { error: err });
-      showToast("Search failed. Try again.", "error");
+      log.error("Research run failed", { error: err });
+      showToast(err.message || "Research failed. Try again.", "error");
     } finally {
       setRunningSearch((prev) => ({ ...prev, [topic.id]: false }));
     }
   };
 
-  const analyzeWithAI = async (topic) => {
-    setAnalyzingTopic((prev) => ({ ...prev, [topic.id]: true }));
-    setAnalysisResults((prev) => ({ ...prev, [topic.id]: null }));
-    try {
-      const session = await supabase.auth.getSession();
-      const res = await fetch("/api/listening/analyze", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.data.session.access_token}`,
-        },
-        body: JSON.stringify({ topicId: topic.id, topicName: topic.name }),
-      });
-      const result = await res.json();
-      if (result.ideas) {
-        setAnalysisResults((prev) => ({ ...prev, [topic.id]: result }));
-        if (!expandedHits[topic.id]) fetchHits(topic.id);
-      } else {
-        showToast(result.error || "Analysis failed. Try again.", "error");
-      }
-    } catch {
-      showToast("Analysis failed. Try again.", "error");
-    } finally {
-      setAnalyzingTopic((prev) => ({ ...prev, [topic.id]: false }));
+  const createTopic = async (event) => {
+    event.preventDefault();
+    if (!form.name.trim() || !form.keywords.trim()) {
+      showToast("Enter a name and keywords.", "warning");
+      return;
     }
-  };
 
-  const saveIdeaFromAnalysis = async (idea, topicId) => {
-    const { error: err } = await supabase.from("ideas").insert({
-      user_id: user.id,
-      source_url: "ai-generated",
-      source_platform: idea.platform || "manual",
-      context_text: `${idea.angle} ${idea.why}`,
-      title: idea.title,
-      status: "new",
-    });
-    if (err) showToast("Couldn't save idea.", "error");
-    else showToast("Idea saved!", "success");
-  };
-
-  const createTopic = async (e) => {
-    e.preventDefault();
-    if (!name.trim() || !keywords.trim()) { showToast("Enter a name and keywords.", "warning"); return; }
     setSaving(true);
-    const keywordArray = keywords.split(",").map((k) => k.trim()).filter(Boolean);
-    const { error: err } = await supabase.from("listening_topics").insert({
-      user_id: user.id, name: name.trim(), keywords: keywordArray, frequency, active: true,
-    });
-    if (err) showToast(friendlyError(mapSupabaseError(err, "create-topic")), "error");
-    else {
-      showToast(`"${name.trim()}" added. Click 'Search now' to find content.`, "success");
-      setName(""); setKeywords(""); setShowForm(false); fetchTopics();
+    const topicPayload = {
+      name: form.name.trim(),
+      audience: form.audience.trim(),
+      contentFormat: form.contentFormat.trim() || "short-form video",
+      keywords: parseCsv(form.keywords),
+      competitors: parseCsv(form.competitors),
+      platformFocus: parseCsv(form.platformFocus),
+      frequency: form.frequency,
+    };
+
+    try {
+      await createTopicAndSearch({
+        createTopic: async () => {
+          const session = await supabase.auth.getSession();
+          const token = session.data.session?.access_token;
+          if (!token) throw new Error("Please log in to continue.");
+          const res = await fetch("/api/topics", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify(topicPayload),
+          });
+          const result = await res.json();
+          if (!res.ok) throw new Error(result.error || "Couldn't create topic.");
+          setTopics((prev) => [result, ...prev]);
+          return result;
+        },
+        runSearch: async (createdTopic) => {
+          showToast(`"${createdTopic.name}" created. Starting research...`, "info");
+          await runSearchNow(createdTopic);
+        },
+      });
+
+      setForm({
+        name: "",
+        audience: "",
+        contentFormat: "short-form video",
+        keywords: "",
+        competitors: "",
+        platformFocus: "YouTube, Instagram, TikTok",
+        frequency: "daily",
+      });
+      setShowForm(false);
+    } catch (err) {
+      log.error("Topic creation failed", { error: err });
+      showToast(err.message || friendlyError(mapSupabaseError(err, "create-topic")), "error");
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   const toggleActive = async (topic) => {
@@ -185,10 +261,71 @@ export default function TopicsPage() {
     fetchTopics();
   };
 
+  const captureAsIdea = async (hit) => {
+    const { error: err } = await supabase.from("ideas").insert({
+      user_id: user.id,
+      source_url: hit.source_url,
+      source_platform: hit.platform || "listening",
+      context_text: hit.snippet || hit.title || "",
+      title: hit.title || "Listening idea",
+      status: "new",
+      metadata: { listening_hit_id: hit.id, run_id: hit.run_id, cluster_id: hit.cluster_id },
+    });
+    if (err) showToast("Couldn't save as idea.", "error");
+    else showToast("Idea saved from listening.", "success");
+  };
+
+  const saveClusterIdea = async (topic, cluster, angle = null) => {
+    const citation = firstCitation(angle || cluster);
+    const { error: err } = await supabase.from("ideas").insert({
+      user_id: user.id,
+      source_url: citationUrl(citation) || `last30days://cluster/${cluster.id}`,
+      source_platform: "listening",
+      context_text: angle?.angle || cluster.summary || cluster.title,
+      title: angle?.title || cluster.title,
+      status: "new",
+      metadata: {
+        topic_id: topic.id,
+        cluster_id: cluster.id,
+        run_id: cluster.run_id,
+        evidence: angle?.evidence || [],
+      },
+    });
+    if (err) showToast("Couldn't save idea.", "error");
+    else showToast("Idea saved to inbox.", "success");
+  };
+
+  const createScriptOutline = async (topic, angle) => {
+    const { error: err } = await supabase.from("ideas").insert({
+      user_id: user.id,
+      source_url: citationUrl(firstCitation(angle)) || `last30days://brief/${briefs[topic.id]?.id || topic.id}`,
+      source_platform: "listening",
+      title: `Script: ${angle.title}`,
+      context_text: `${angle.angle}\n\nHook: ${angle.title}\nWhy: ${angle.why || ""}`,
+      status: "new",
+      metadata: { topic_id: topic.id, type: "script_outline", evidence: angle.evidence || [] },
+    });
+    if (err) showToast("Couldn't create script outline.", "error");
+    else showToast("Script outline saved to inbox.", "success");
+  };
+
+  const markClusterIrrelevant = async (cluster) => {
+    const metadata = { ...(cluster.metadata || {}), dismissed: true };
+    const { error: err } = await supabase.from("listening_clusters").update({ metadata }).eq("id", cluster.id);
+    if (err) showToast("Couldn't mark cluster irrelevant.", "error");
+    else {
+      setClusters((prev) => ({
+        ...prev,
+        [cluster.topic_id]: (prev[cluster.topic_id] || []).filter((item) => item.id !== cluster.id),
+      }));
+      showToast("Cluster hidden.", "success");
+    }
+  };
+
   return (
     <div
       ref={containerRef}
-      className="p-4 sm:p-6 max-w-3xl mx-auto"
+      className="p-4 sm:p-6 max-w-4xl mx-auto"
       style={refreshing ? { opacity: 0.7 } : {}}
     >
       {refreshing && (
@@ -201,7 +338,7 @@ export default function TopicsPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Listening</h1>
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            Real-time search across Reddit, HN, YouTube, and the web.
+            Creator-grade research briefs from Reddit, HN, YouTube, GitHub, prediction markets, and the web.
           </p>
         </div>
         <div className="flex gap-2">
@@ -220,47 +357,65 @@ export default function TopicsPage() {
         <div className="mb-6 rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 p-4">
           <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-200 mb-2">How listening works</h3>
           <ol className="space-y-1.5 text-xs text-blue-800 dark:text-blue-300 pl-4 list-decimal">
-            <li>Add a topic with keywords (e.g. "content creation trends")</li>
-            <li>Click <strong>Search now</strong> to run a live search via Firecrawl</li>
-            <li>Results appear sorted by relevance from Reddit, HN, YouTube, and web</li>
-            <li>Click <strong>💡 Capture as idea</strong> on any hit to save it to your inbox</li>
+            <li>Add the audience, format, keywords, tools, and target platforms for a creator niche.</li>
+            <li>Search now queues a last30days research run and shows queued/running/succeeded state.</li>
+            <li>The brief answers what to make now, why it matters, and which sources prove it.</li>
+            <li>Clusters and raw hits stay below the brief so each run builds on prior sightings.</li>
           </ol>
-          <p className="mt-3 text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1">
-            <Sparkles className="h-3 w-3" /> Powered by Firecrawl — searches live content across platforms.
-          </p>
         </div>
       )}
 
-      {/* Form */}
       {showForm && (
         <form onSubmit={createTopic} className="mb-6 rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
-          <div className="space-y-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Topic name</label>
-              <input type="text" required value={name} onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. SaaS marketing" className="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-white px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Keywords (comma separated)</label>
-              <input type="text" required value={keywords} onChange={(e) => setKeywords(e.target.value)}
-                placeholder="e.g. content creation trends, social media tools"
-                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-white px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Frequency</label>
-              <select value={frequency} onChange={(e) => setFrequency(e.target.value)}
-                className="rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-white px-3 py-2 text-sm">
-                {FREQUENCIES.map((f) => (<option key={f} value={f}>{f === "daily" ? "Daily" : "Weekly"}</option>))}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+              Topic name
+              <input type="text" required value={form.name} onChange={(e) => updateForm("name", e.target.value)}
+                placeholder="e.g. AI video creation" className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-white px-3 py-2 text-sm" />
+            </label>
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+              Audience
+              <input type="text" value={form.audience} onChange={(e) => updateForm("audience", e.target.value)}
+                placeholder="e.g. creators selling templates" className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-white px-3 py-2 text-sm" />
+            </label>
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+              Content format
+              <input type="text" value={form.contentFormat} onChange={(e) => updateForm("contentFormat", e.target.value)}
+                placeholder="e.g. short-form video" className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-white px-3 py-2 text-sm" />
+            </label>
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+              Frequency
+              <select value={form.frequency} onChange={(e) => updateForm("frequency", e.target.value)}
+                className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-white px-3 py-2 text-sm">
+                {FREQUENCIES.map((frequency) => (
+                  <option key={frequency} value={frequency}>{frequency === "daily" ? "Daily" : "Weekly"}</option>
+                ))}
               </select>
-            </div>
-            <div className="flex gap-2">
-              <button type="submit" disabled={saving}
-                className="rounded-lg bg-brand-600 px-4 py-2 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-50">
-                {saving ? "Creating..." : "Create & search now"}
-              </button>
-              <button type="button" onClick={() => setShowForm(false)}
-                className="rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
-            </div>
+            </label>
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 sm:col-span-2">
+              Keywords
+              <input type="text" required value={form.keywords} onChange={(e) => updateForm("keywords", e.target.value)}
+                placeholder="e.g. AI UGC, product demos, video ads" className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-white px-3 py-2 text-sm" />
+            </label>
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+              Competitors/tools
+              <input type="text" value={form.competitors} onChange={(e) => updateForm("competitors", e.target.value)}
+                placeholder="e.g. Runway, HeyGen, Arcads" className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-white px-3 py-2 text-sm" />
+            </label>
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+              Platform focus
+              <input type="text" value={form.platformFocus} onChange={(e) => updateForm("platformFocus", e.target.value)}
+                placeholder="e.g. YouTube, Instagram, TikTok" className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-white px-3 py-2 text-sm" />
+            </label>
+          </div>
+          <div className="mt-4 flex gap-2">
+            <button type="submit" disabled={saving}
+              className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-50">
+              {saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              {saving ? "Creating..." : "Create & search now"}
+            </button>
+            <button type="button" onClick={() => setShowForm(false)}
+              className="rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
           </div>
         </form>
       )}
@@ -272,32 +427,33 @@ export default function TopicsPage() {
       )}
 
       {loading ? (
-        <div className="space-y-3">{/* skeletons */}</div>
+        <div className="space-y-3" />
       ) : topics.length === 0 ? (
         <div className="rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-12 text-center">
-          <div className="mb-4 text-5xl">🔍</div>
+          <Sparkles className="mx-auto mb-4 h-10 w-10 text-brand-600" />
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Discover what to create</h3>
-          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 max-w-xs mx-auto">
-            Add topics you want to track. We'll search Reddit, HN, YouTube, and the web for trending discussions.
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 max-w-sm mx-auto">
+            Add a creator niche and get research briefs with angles, hooks, and source evidence.
           </p>
           <button onClick={() => setShowForm(true)}
             className="mt-5 inline-flex items-center gap-2 rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-brand-700 min-h-[44px]">
-            <Sparkles className="h-4 w-4" /> Add your first topic
+            <Plus className="h-4 w-4" /> Add your first topic
           </button>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {topics.map((topic) => {
-            const statusInfo = getTopicStatus(topic);
+            const latestRun = getLatestRun(runs[topic.id]);
+            const isRunning = runningSearch[topic.id] || ["queued", "running"].includes(latestRun?.status);
+            const statusInfo = getTopicStatus(topic, isRunning, latestRun);
+            const topicBrief = briefs[topic.id];
+            const topicClusters = (clusters[topic.id] || []).filter((cluster) => !cluster.metadata?.dismissed);
             const topicHits = hits[topic.id] || [];
-            const isExpanded = expandedHits[topic.id];
-            const isLoadingHits = loadingHits[topic.id];
-            const isRunning = runningSearch[topic.id];
-            const isAnalyzing = analyzingTopic[topic.id];
-            const analysis = analysisResults[topic.id];
+            const isExpanded = expanded[topic.id];
+            const isRawExpanded = expandedRaw[topic.id];
 
             return (
-              <div key={topic.id} className="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
+              <section key={topic.id} className="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
@@ -307,24 +463,26 @@ export default function TopicsPage() {
                         <span className="rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-[10px] text-gray-600 dark:text-gray-400 capitalize">{topic.frequency}</span>
                       </div>
                       <div className="flex flex-wrap gap-1 mb-1">
-                        {topic.keywords.map((kw) => (
+                        {(topic.keywords || []).map((kw) => (
                           <span key={kw} className="rounded bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 text-[10px] text-gray-600 dark:text-gray-400">{kw}</span>
                         ))}
                       </div>
-                      {topic.last_run_at && (
-                        <p className="text-[10px] text-gray-400 dark:text-gray-500">Last searched: {new Date(topic.last_run_at).toLocaleString()}</p>
-                      )}
+                      <div className="text-[10px] text-gray-400 dark:text-gray-500 space-y-0.5">
+                        {topic.audience && <p>Audience: {topic.audience}</p>}
+                        {topic.last_run_at && <p>Last searched: {new Date(topic.last_run_at).toLocaleString()}</p>}
+                        {latestRun?.error_message && <p className="text-red-500">Last run failed: {latestRun.error_message}</p>}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <button onClick={() => analyzeWithAI(topic)} disabled={isAnalyzing || isRunning}
-                        className="rounded-lg p-1.5 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 disabled:opacity-50 min-w-[32px] min-h-[32px]"
-                        title="Generate ideas with AI">
-                        <Sparkles className={`h-4 w-4 ${isAnalyzing ? "animate-pulse" : ""}`} />
-                      </button>
+                    <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
                       <button onClick={() => runSearchNow(topic)} disabled={isRunning}
-                        className="rounded-lg p-1.5 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/20 disabled:opacity-50 min-w-[32px] min-h-[32px]"
-                        title="Search now">
-                        {isRunning ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                        className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/20 disabled:opacity-50 min-h-[32px]">
+                        {isRunning ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                        <span>{isRunning ? "Searching" : "Search now"}</span>
+                      </button>
+                      <button onClick={() => runSearchNow(topic, true)} disabled={isRunning}
+                        className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 disabled:opacity-50 min-h-[32px]">
+                        <Sparkles className="h-4 w-4" />
+                        <span>Deep run</span>
                       </button>
                       <button onClick={() => toggleActive(topic)}
                         className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 min-w-[32px] min-h-[32px]"
@@ -338,91 +496,161 @@ export default function TopicsPage() {
                     </div>
                   </div>
 
-                  {/* Show hits toggle */}
-                  <button onClick={() => fetchHits(topic.id)}
+                  <button onClick={() => toggleExpanded(topic.id)}
                     className="mt-3 w-full flex items-center justify-between rounded-lg bg-gray-50 dark:bg-gray-900 px-3 py-2 text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
-                    <span>{isExpanded ? "Hide results" : `Show results (${topicHits.length || "..."})`}</span>
+                    <span>{isExpanded ? "Hide research brief" : isRunning ? "Show research brief (searching...)" : "Show research brief"}</span>
                     {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                   </button>
                 </div>
 
-                {/* AI Analysis Results */}
-                {isAnalyzing && (
-                  <div className="px-4 pb-3">
-                    <div className="rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-900/20 p-3 text-xs text-purple-700 dark:text-purple-300 flex items-center gap-2">
-                      <Sparkles className="h-3.5 w-3.5 animate-pulse flex-shrink-0" />
-                      Analyzing discussions and generating content ideas…
-                    </div>
-                  </div>
-                )}
-                {analysis && !isAnalyzing && (
-                  <div className="border-t dark:border-gray-700 px-4 py-3 bg-purple-50/50 dark:bg-purple-900/10">
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-xs font-semibold text-purple-900 dark:text-purple-200 flex items-center gap-1">
-                        <Sparkles className="h-3 w-3" /> AI-Generated Ideas
-                      </h4>
-                      <button onClick={() => setAnalysisResults((prev) => ({ ...prev, [topic.id]: null }))}
-                        className="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">dismiss</button>
-                    </div>
-                    {analysis.themes?.length > 0 && (
-                      <div className="mb-3">
-                        <p className="text-[10px] text-purple-700 dark:text-purple-400 font-medium mb-1">Trending themes</p>
+                {isExpanded && (
+                  <div className="border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 px-4 py-3 space-y-3">
+                    {isRunning && (
+                      <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+                        <LoaderCircle className="h-3.5 w-3.5 animate-spin flex-shrink-0" />
+                        Searching sources and building a creator brief. Results will update after the worker finishes.
+                      </div>
+                    )}
+
+                    {topicBrief ? (
+                      <div className="rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Sparkles className="h-4 w-4 text-brand-600" />
+                          <h4 className="text-sm font-semibold text-gray-900 dark:text-white">{topicBrief.headline}</h4>
+                        </div>
+                        {topicBrief.what_changed && <p className="text-xs text-gray-600 dark:text-gray-300 mb-3">{topicBrief.what_changed}</p>}
+                        {topicBrief.audience_pains?.length > 0 && (
+                          <div className="mb-3">
+                            <p className="text-[10px] uppercase text-gray-400 mb-1">Why it matters</p>
+                            <div className="flex flex-wrap gap-1">
+                              {topicBrief.audience_pains.map((pain) => (
+                                <span key={pain} className="rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-1 text-[10px] text-gray-600 dark:text-gray-300">{pain}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        <div className="space-y-2">
+                          {(topicBrief.content_angles || []).slice(0, 5).map((angle, index) => (
+                            <div key={`${angle.title}-${index}`} className="rounded-lg border dark:border-gray-700 p-2.5">
+                              <p className="text-xs font-medium text-gray-900 dark:text-white">{angle.title}</p>
+                              <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">{angle.angle}</p>
+                              {angle.why && <p className="mt-1 text-[10px] text-gray-400 dark:text-gray-500">{angle.why}</p>}
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <button onClick={() => saveClusterIdea(topic, { id: topicBrief.id, run_id: topicBrief.run_id, summary: topicBrief.what_changed, title: angle.title }, angle)}
+                                  className="inline-flex items-center gap-1 rounded bg-brand-100 dark:bg-brand-900/30 px-2 py-1 text-[10px] font-medium text-brand-700 dark:text-brand-300 hover:bg-brand-200 dark:hover:bg-brand-800">
+                                  <Lightbulb className="h-3 w-3" /> Save idea
+                                </button>
+                                <button onClick={() => createScriptOutline(topic, angle)}
+                                  className="inline-flex items-center gap-1 rounded bg-purple-100 dark:bg-purple-900/30 px-2 py-1 text-[10px] font-medium text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800">
+                                  <FileText className="h-3 w-3" /> Script outline
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {topicBrief.scripts_or_hooks?.length > 0 && (
+                          <div className="mt-3">
+                            <p className="text-[10px] uppercase text-gray-400 mb-1">Hooks to try</p>
+                            <div className="space-y-1">
+                              {topicBrief.scripts_or_hooks.map((hook) => (
+                                <p key={hook} className="text-[11px] text-gray-600 dark:text-gray-300">"{hook}"</p>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 p-4 text-center text-xs text-gray-400 dark:text-gray-500">
+                        {isRunning ? "Brief is being generated." : "No creator brief yet. Click Search now to run research."}
+                      </div>
+                    )}
+
+                    {topicClusters.length > 0 && (
+                      <div>
+                        <p className="mb-2 text-[10px] uppercase text-gray-400">Clusters</p>
+                        <div className="space-y-2">
+                          {topicClusters.slice(0, 8).map((cluster) => {
+                            const sourceUrl = citationUrl(firstCitation(cluster));
+                            return (
+                              <div key={cluster.id} className="rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div>
+                                    <p className="text-xs font-medium text-gray-900 dark:text-white">{cluster.title}</p>
+                                    {cluster.summary && <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">{cluster.summary}</p>}
+                                    <div className="mt-2 flex flex-wrap gap-1">
+                                      {(cluster.sources || []).map((source) => (
+                                        <span key={source} className="rounded bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 text-[10px] text-gray-500 dark:text-gray-300">{source}</span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  <span className="text-[10px] text-gray-400">{cluster.score ? Number(cluster.score).toFixed(2) : ""}</span>
+                                </div>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  <button onClick={() => saveClusterIdea(topic, cluster)}
+                                    className="inline-flex items-center gap-1 rounded bg-brand-100 dark:bg-brand-900/30 px-2 py-1 text-[10px] font-medium text-brand-700 dark:text-brand-300">
+                                    <Lightbulb className="h-3 w-3" /> Save idea
+                                  </button>
+                                  {sourceUrl && (
+                                    <a href={sourceUrl} target="_blank" rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+                                      <ExternalLink className="h-3 w-3" /> Open sources
+                                    </a>
+                                  )}
+                                  <button onClick={() => markClusterIrrelevant(cluster)}
+                                    className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700">
+                                    <X className="h-3 w-3" /> Mark irrelevant
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {runs[topic.id]?.length > 0 && (
+                      <div>
+                        <p className="mb-2 text-[10px] uppercase text-gray-400">Run history</p>
                         <div className="flex flex-wrap gap-1">
-                          {analysis.themes.map((t, i) => (
-                            <span key={i} className="rounded-full bg-purple-100 dark:bg-purple-900/40 px-2 py-0.5 text-[10px] text-purple-700 dark:text-purple-300">{t}</span>
+                          {runs[topic.id].slice(0, 5).map((run) => (
+                            <span key={run.id} className="rounded-full bg-white dark:bg-gray-800 border dark:border-gray-700 px-2 py-1 text-[10px] text-gray-500 dark:text-gray-300">
+                              {run.status} · {run.total_new_hits || 0} new · {new Date(run.created_at).toLocaleDateString()}
+                            </span>
                           ))}
                         </div>
                       </div>
                     )}
-                    <div className="space-y-2">
-                      {analysis.ideas.map((idea, i) => (
-                        <div key={i} className="rounded-lg border border-purple-200 dark:border-purple-800 bg-white dark:bg-gray-800 p-2.5">
-                          <div className="flex items-start justify-between gap-2 mb-1">
-                            <p className="text-xs font-medium text-gray-900 dark:text-white flex-1">{idea.title}</p>
-                            <span className="text-[10px] uppercase text-purple-500 dark:text-purple-400 flex-shrink-0">{idea.platform}</span>
-                          </div>
-                          <p className="text-[10px] text-gray-500 dark:text-gray-400 mb-1">{idea.angle}</p>
-                          <p className="text-[10px] text-gray-400 dark:text-gray-500 italic mb-2">{idea.why}</p>
-                          <button onClick={() => saveIdeaFromAnalysis(idea, topic.id)}
-                            className="inline-flex items-center gap-1 rounded bg-purple-100 dark:bg-purple-900/30 px-2 py-0.5 text-[10px] font-medium text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800 min-h-[28px]">
-                            <Lightbulb className="h-3 w-3" /> Save to inbox
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
 
-                {/* Hits list */}
-                {isExpanded && (
-                  <div className="border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 px-4 py-3">
-                    {isLoadingHits ? (
-                      <div className="space-y-2">{/* skeleton */}</div>
-                    ) : topicHits.length === 0 ? (
-                      <div className="text-center py-4">
-                        <p className="text-xs text-gray-400 dark:text-gray-500">No results yet. Click Search now to find content.</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                        {topicHits.map((hit) => (
-                          <div key={hit.id} className={`rounded-lg border dark:border-gray-600 bg-white dark:bg-gray-800 p-2.5 text-xs ${hit._captured ? "opacity-40" : ""}`}>
+                    <button onClick={() => toggleRaw(topic.id)}
+                      className="w-full flex items-center justify-between rounded-lg bg-white dark:bg-gray-800 px-3 py-2 text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700">
+                      <span>{isRawExpanded ? "Hide raw results" : `Show raw results (${topicHits.length || latestRun?.total_candidates || 0})`}</span>
+                      {isRawExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                    </button>
+
+                    {isRawExpanded && (
+                      <div className="space-y-2 max-h-[420px] overflow-y-auto">
+                        {loadingHits[topic.id] ? (
+                          <p className="py-4 text-center text-xs text-gray-400">Loading results...</p>
+                        ) : topicHits.length === 0 ? (
+                          <p className="py-4 text-center text-xs text-gray-400">{isRunning ? "Search in progress..." : "No raw results yet."}</p>
+                        ) : topicHits.map((hit) => (
+                          <div key={hit.id} className="rounded-lg border dark:border-gray-600 bg-white dark:bg-gray-800 p-2.5 text-xs">
                             <div className="flex items-start justify-between gap-2 mb-1">
-                              <span className="font-medium text-gray-900 dark:text-white truncate flex-1">{hit.title || "Untitled"}</span>
+                              <span className="font-medium text-gray-900 dark:text-white flex-1">{hit.title || "Untitled"}</span>
                               <span className="text-[10px] uppercase text-gray-400 dark:text-gray-500 flex-shrink-0">{hit.platform}</span>
                             </div>
                             {hit.snippet && <p className="text-gray-500 dark:text-gray-400 line-clamp-2 mb-2">{hit.snippet}</p>}
-                            <div className="flex items-center justify-between">
+                            <div className="flex items-center justify-between gap-2">
                               <span className="text-gray-400 dark:text-gray-500">
-                                {hit.author && `by ${hit.author}`} {hit.engagement_score ? ` • ${hit.engagement_score} pts` : ""}
+                                {hit.sighting_count > 1 ? `${hit.sighting_count} sightings` : "New sighting"}
                               </span>
                               <div className="flex items-center gap-2">
                                 <a href={hit.source_url} target="_blank" rel="noopener noreferrer"
-                                  className="text-brand-600 dark:text-brand-400 hover:underline text-[10px]">
-                                  View source
+                                  className="inline-flex items-center gap-1 text-brand-600 dark:text-brand-400 hover:underline text-[10px]">
+                                  <ExternalLink className="h-3 w-3" /> View source
                                 </a>
                                 <button onClick={() => captureAsIdea(hit)}
-                                  className="inline-flex items-center gap-1 rounded bg-brand-100 dark:bg-brand-900/30 px-2 py-0.5 text-[10px] font-medium text-brand-700 dark:text-brand-300 hover:bg-brand-200 dark:hover:bg-brand-800 min-h-[28px]"
-                                  title="Save as idea">
+                                  className="inline-flex items-center gap-1 rounded bg-brand-100 dark:bg-brand-900/30 px-2 py-0.5 text-[10px] font-medium text-brand-700 dark:text-brand-300 hover:bg-brand-200 dark:hover:bg-brand-800 min-h-[28px]">
                                   <Lightbulb className="h-3 w-3" /> Idea
                                 </button>
                               </div>
@@ -433,7 +661,7 @@ export default function TopicsPage() {
                     )}
                   </div>
                 )}
-              </div>
+              </section>
             );
           })}
         </div>

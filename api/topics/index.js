@@ -28,6 +28,10 @@ export default async function handler(nodeReq, nodeRes) {
       user_id: user.id, name: body.name, keywords: body.keywords,
       frequency: body.frequency || "daily",
       platforms: body.platforms || ["reddit", "hackernews", "youtube"],
+      audience: body.audience || null,
+      content_format: body.contentFormat || body.content_format || "short-form video",
+      competitors: body.competitors || [],
+      platform_focus: body.platformFocus || body.platform_focus || ["youtube", "instagram", "tiktok"],
       active: true,
     }).select().single();
 
