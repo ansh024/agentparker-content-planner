@@ -88,9 +88,10 @@ class BridgeTests(unittest.TestCase):
         })
 
         self.assertIn("AI product shoot", query)
-        self.assertIn("DTC founders", query)
-        self.assertIn("Flair", query)
-        self.assertIn("youtube", query)
+        self.assertIn("product photography", query)
+        self.assertNotIn("DTC founders", query)
+        self.assertNotIn("Flair", query)
+        self.assertNotIn("youtube", query)
         self.assertNotIn("|", query)
         self.assertNotIn("competitors/tools", query)
 
