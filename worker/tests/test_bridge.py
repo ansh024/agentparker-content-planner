@@ -91,6 +91,8 @@ class BridgeTests(unittest.TestCase):
         self.assertIn("DTC founders", query)
         self.assertIn("Flair", query)
         self.assertIn("youtube", query)
+        self.assertNotIn("|", query)
+        self.assertNotIn("competitors/tools", query)
 
     def test_candidate_payload_maps_scores_and_raw_item(self):
         payload = candidate_payload({
@@ -156,4 +158,3 @@ class BridgeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

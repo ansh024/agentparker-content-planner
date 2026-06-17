@@ -22,16 +22,18 @@ def build_topic_query(topic: dict[str, Any]) -> str:
     parts = [topic.get("name") or ""]
     keywords = topic.get("keywords") or []
     if keywords:
-        parts.append(", ".join(keywords))
+        parts.append(" ".join(keywords))
     if topic.get("audience"):
         parts.append(f"for {topic['audience']}")
     if topic.get("content_format"):
-        parts.append(f"content format: {topic['content_format']}")
+        parts.append(f"{topic['content_format']} creator ideas")
     if topic.get("competitors"):
-        parts.append(f"competitors/tools: {', '.join(topic['competitors'])}")
+        # Avoid "competitors/tools" or "vs" wording; last30days interprets
+        # those as comparison mode and can split broad creator topics badly.
+        parts.append(f"including context around {' '.join(topic['competitors'])}")
     if topic.get("platform_focus"):
-        parts.append(f"platforms: {', '.join(topic['platform_focus'])}")
-    return " | ".join(part for part in parts if part).strip()
+        parts.append(f"for {' '.join(topic['platform_focus'])} content")
+    return " ".join(part for part in parts if part).strip()
 
 
 def last30days_script_path() -> Path:
