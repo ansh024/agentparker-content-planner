@@ -92,10 +92,19 @@ def run_last30days(topic: dict[str, Any], deep: bool = False) -> Tuple[dict[str,
         timeout=int(os.environ.get("LAST30DAYS_TIMEOUT_SECONDS", "900")),
         check=False,
     )
-    if proc.returncode != 0:
-        raise RuntimeError((proc.stderr or proc.stdout or "last30days failed").strip())
+    report = None
+    parse_error = None
+    try:
+        report = extract_json(proc.stdout)
+    except ValueError as exc:
+        parse_error = exc
 
-    report = extract_json(proc.stdout)
+    if proc.returncode != 0:
+        if report is None:
+            raise RuntimeError((proc.stderr or proc.stdout or str(parse_error) or "last30days failed").strip())
+        report.setdefault("warnings", [])
+        report["warnings"].append(f"last30days exited with code {proc.returncode} after emitting JSON.")
+
     raw_path = None
     artifacts = report.get("artifacts") or {}
     if isinstance(artifacts, dict):
