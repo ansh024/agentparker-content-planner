@@ -9,6 +9,7 @@ export function resolveSharePayload(params) {
   return {
     url: rawUrl || urlMatch?.[0] || "",
     title: rawTitle || "",
+    text: rawText || "",
   };
 }
 

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { CheckCircle2, Loader2, AlertCircle } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
-import { friendlyError, mapSupabaseError } from "../lib/errors";
 import { logger } from "../lib/logger";
 import { supabase } from "../lib/supabase";
 import { detectPlatform, resolveSharePayload } from "../lib/shareTarget";
@@ -38,7 +37,7 @@ export default function SharePage() {
   const sharedPayload = useMemo(() => {
     const resolved = resolveSharePayload(searchParams);
     const pending = getPendingShare();
-    return resolved.url ? resolved : { url: pending?.url || "", title: pending?.title || "" };
+    return resolved.url ? resolved : { url: pending?.url || "", title: pending?.title || "", text: pending?.text || "" };
   }, [searchParams]);
 
   useEffect(() => {
@@ -61,31 +60,38 @@ export default function SharePage() {
     async function saveShare() {
       clearPendingShare();
       setStatus("loading");
-      setMessage("Saving shared link...");
-      log.info("Saving shared link", { url: sharedPayload.url });
+      setMessage("Importing shared post...");
+      log.info("Importing shared link", { url: sharedPayload.url });
 
-      const { error: err, data } = await supabase
-        .from("ideas")
-        .insert({
-          user_id: user.id,
-          source_url: sharedPayload.url,
-          source_platform: detectPlatform(sharedPayload.url),
-          context_text: sharedPayload.title || null,
-          status: "new",
-        })
-        .select()
-        .single();
+      const session = (await supabase.auth.getSession()).data.session;
+      const response = await fetch("/api/import", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({
+          url: sharedPayload.url,
+          platform: detectPlatform(sharedPayload.url),
+          shared_title: sharedPayload.title,
+          shared_text: sharedPayload.text,
+        }),
+      });
 
-      if (err) {
-        log.error("Failed to save shared link", { error: err });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        log.error("Failed to import shared link", payload);
         setStatus("error");
-        setMessage(friendlyError(mapSupabaseError(err, "save-idea")));
+        setMessage(payload.error || "Couldn't import this shared link.");
         return;
       }
 
       setStatus("saved");
-      setMessage("Saved to your inbox.");
-      enrichIdea(data.id, sharedPayload.url);
+      setMessage(
+        payload.import_status === "import_failed"
+          ? "Saved to your inbox, but media import needs attention."
+          : "Imported to your inbox.",
+      );
       window.setTimeout(() => navigate("/inbox", { replace: true }), 1500);
     }
 
@@ -114,32 +120,4 @@ export default function SharePage() {
       </div>
     </div>
   );
-}
-
-async function enrichIdea(ideaId, sourceUrl) {
-  try {
-    const session = (await supabase.auth.getSession()).data.session;
-    const res = await fetch("/api/enrich", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${session?.access_token}`,
-      },
-      body: JSON.stringify({ url: sourceUrl }),
-    });
-
-    if (res.ok) {
-      const { og_title, og_image, ai_summary } = await res.json();
-      await supabase
-        .from("ideas")
-        .update({
-          title: og_title || undefined,
-          og_image_url: og_image || undefined,
-          ai_summary: ai_summary || undefined,
-        })
-        .eq("id", ideaId);
-    }
-  } catch (error) {
-    log.debug("Enrichment skipped", { error: error.message });
-  }
 }

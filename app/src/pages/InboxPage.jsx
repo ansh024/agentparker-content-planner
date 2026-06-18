@@ -5,6 +5,7 @@ import { useToast } from "../contexts/ToastContext";
 import { supabase } from "../lib/supabase";
 import { logger } from "../lib/logger";
 import { friendlyError, mapSupabaseError } from "../lib/errors";
+import { getImportStatus } from "../lib/ideaImport";
 import { Plus, Trash2, ExternalLink, Search, CheckSquare, Square, X, Download } from "lucide-react";
 
 const log = logger("InboxPage");
@@ -117,40 +118,33 @@ export default function InboxPage() {
     e.preventDefault();
     if (!url.trim()) { showToast(friendlyError("IDEA_INVALID_URL"), "warning"); return; }
     setSaving(true);
-    log.info("Creating idea", { url: url.trim() });
-    const { error: err, data } = await supabase.from("ideas").insert({
-      user_id: user.id, source_url: url.trim(), source_platform: "manual",
-      context_text: contextText.trim() || null, status: "new",
-    }).select().single();
-    if (err) {
-      showToast(friendlyError(mapSupabaseError(err, "save-idea")), "error");
+    log.info("Creating imported idea", { url: url.trim() });
+    const session = (await supabase.auth.getSession()).data.session;
+    const response = await fetch("/api/import", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session?.access_token}`,
+      },
+      body: JSON.stringify({
+        url: url.trim(),
+        notes: contextText.trim(),
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      showToast(payload.error || "Couldn't save your idea. Try again.", "error");
     } else {
-      showToast("Idea saved to your inbox!", "success");
+      showToast(
+        payload.import_status === "import_failed"
+          ? "Idea saved, but the media import needs attention."
+          : "Idea imported to your inbox!",
+        payload.import_status === "import_failed" ? "warning" : "success",
+      );
       setUrl(""); setContextText(""); setShowForm(false);
-      // Trigger enrichment
-      enrichIdea(data.id, url.trim());
+      fetchIdeas();
     }
     setSaving(false);
-  };
-
-  const enrichIdea = async (ideaId, sourceUrl) => {
-    try {
-      const res = await fetch("/api/enrich", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}` },
-        body: JSON.stringify({ url: sourceUrl }),
-      });
-      if (res.ok) {
-        const { og_title, og_image, ai_summary } = await res.json();
-        await supabase.from("ideas").update({
-          title: og_title || undefined,
-          og_image_url: og_image || undefined,
-          ai_summary: ai_summary || undefined,
-        }).eq("id", ideaId);
-      }
-    } catch (e) {
-      log.debug("Enrichment skipped (no ANTHROPIC_API_KEY or fetch failed)", { error: e.message });
-    }
   };
 
   const updateStatus = async (id, status) => {
@@ -179,6 +173,7 @@ export default function InboxPage() {
       source_platform: idea.source_platform, context_text: idea.context_text,
       status: idea.status, title: idea.title, ai_summary: idea.ai_summary,
       og_image_url: idea.og_image_url, created_at: idea.created_at,
+      source_author: idea.source_author, metadata: idea.metadata,
     });
     if (error) {
       showToast("Couldn't restore the idea.", "error");
@@ -346,6 +341,9 @@ export default function InboxPage() {
               className={`group rounded-xl border bg-white dark:bg-gray-800 dark:border-gray-700 shadow-sm transition-shadow hover:shadow-md cursor-pointer ${
                 selected.has(idea.id) ? "ring-2 ring-brand-500" : ""
               }`}>
+              {(() => {
+                const importStatus = getImportStatus(idea);
+                return (
               <div className="flex items-start gap-3 p-4">
                 {selectMode && (
                   <div className="mt-0.5" onClick={(e) => e.stopPropagation()}>
@@ -361,6 +359,15 @@ export default function InboxPage() {
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-xs">{PLATFORM_ICONS[idea.source_platform] || "📝"}</span>
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase ${STATUS_COLORS[idea.status]}`}>{idea.status}</span>
+                    {importStatus !== "ready" && (
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase ${
+                        importStatus === "import_failed"
+                          ? "bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-300"
+                          : "bg-amber-100 text-amber-800 dark:bg-amber-900/20 dark:text-amber-300"
+                      }`}>
+                        {importStatus === "import_failed" ? "Import failed" : "Importing"}
+                      </span>
+                    )}
                     <span className="text-[10px] text-gray-400 dark:text-gray-500 truncate">{getDomain(idea.source_url)}</span>
                   </div>
                   <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
@@ -379,6 +386,8 @@ export default function InboxPage() {
                     <Trash2 className="h-4 w-4" /></button>
                 </div>
               </div>
+                );
+              })()}
             </div>
           ))}
         </div>
