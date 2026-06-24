@@ -94,6 +94,25 @@ export const HELP = {
     ],
     shortcuts: [],
   },
+  "/topics/:id": {
+    title: "Topic",
+    tagline: "Everything one topic has surfaced.",
+    sections: [
+      {
+        heading: "Brief, clusters & raw results",
+        body: "The Brief tab summarises what changed with content angles and hooks. Clusters group related discussion; Raw results are the individual sources. History logs every run.",
+      },
+      {
+        heading: "Save what's useful",
+        body: "Save any angle, cluster, or source straight to your Inbox as a new idea — or turn an angle into a script outline.",
+      },
+      {
+        heading: "Run & manage",
+        body: "Use Search now for a quick refresh or Deep run for a thorough pass. Pause to stop scheduled runs, or delete the topic (saved ideas are kept).",
+      },
+    ],
+    shortcuts: [],
+  },
   "/inbox/:id": {
     title: "Idea detail",
     tagline: "Develop a single idea end to end.",
@@ -115,5 +134,6 @@ export const HELP = {
 export function helpForPath(pathname) {
   if (HELP[pathname]) return HELP[pathname];
   if (/^\/inbox\/[^/]+$/.test(pathname)) return HELP["/inbox/:id"];
+  if (/^\/topics\/[^/]+$/.test(pathname)) return HELP["/topics/:id"];
   return null;
 }
