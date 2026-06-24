@@ -193,7 +193,9 @@ export default function IdeaDetailPage() {
   const importStatus = getImportStatus(idea);
   const importWarnings = getImportWarnings(idea);
   const aiOutputs = idea.metadata?.ai || {};
-  const hasAi = aiOutputs.brief || aiOutputs.hooks?.hooks?.length > 0 || aiOutputs.script || idea.ai_summary;
+  // Generated outputs only — ai_summary is shown on the Details tab and must not
+  // suppress the AI tab's "no output yet" hint.
+  const hasAi = aiOutputs.brief || aiOutputs.hooks?.hooks?.length > 0 || aiOutputs.script;
 
   return (
     <div className="mx-auto max-w-2xl p-4 sm:p-6">
