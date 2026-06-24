@@ -5,6 +5,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { logger } from "../lib/logger";
 import { supabase } from "../lib/supabase";
 import { detectPlatform, resolveSharePayload } from "../lib/shareTarget";
+import { Card } from "@/components/ui/card";
 
 const log = logger("SharePage");
 const PENDING_SHARE_KEY = "pendingShare";
@@ -104,20 +105,20 @@ export default function SharePage() {
     ) : status === "error" || status === "no-url" ? (
       <AlertCircle className="h-10 w-10 text-amber-600" />
     ) : (
-      <Loader2 className="h-10 w-10 animate-spin text-brand-600" />
+      <Loader2 className="h-10 w-10 animate-spin text-primary" />
     );
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 dark:bg-gray-950">
-      <div className="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-6 text-center shadow-sm dark:border-gray-800 dark:bg-gray-900">
-        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      <Card className="w-full max-w-sm p-6 text-center">
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
           {icon}
         </div>
-        <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
-          {status === "saved" ? "Saved!" : status === "no-url" ? "No link found" : status === "error" ? "Couldn't save" : "Saving..."}
+        <h1 className="text-lg font-semibold text-foreground">
+          {status === "saved" ? "Saved!" : status === "no-url" ? "No link found" : status === "error" ? "Couldn't save" : "Saving…"}
         </h1>
-        <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">{message}</p>
-      </div>
+        <p className="mt-2 text-sm text-muted-foreground">{message}</p>
+      </Card>
     </div>
   );
 }

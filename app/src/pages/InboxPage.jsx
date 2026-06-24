@@ -6,21 +6,48 @@ import { supabase } from "../lib/supabase";
 import { logger } from "../lib/logger";
 import { friendlyError, mapSupabaseError } from "../lib/errors";
 import { getImportStatus } from "../lib/ideaImport";
-import { Plus, Trash2, ExternalLink, Search, CheckSquare, Square, X, Download } from "lucide-react";
+import {
+  Plus, Trash2, Search, CheckSquare, Square, X, Download,
+  SlidersHorizontal, ArrowDownUp, Lightbulb, Check,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+} from "@/components/ui/select";
+import {
+  Popover, PopoverTrigger, PopoverContent,
+} from "@/components/ui/popover";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
+  DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuLabel, DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import {
+  Tooltip, TooltipTrigger, TooltipContent,
+} from "@/components/ui/tooltip";
+import PageHeader from "@/components/common/PageHeader";
+import SearchInput from "@/components/common/SearchInput";
+import EmptyState from "@/components/common/EmptyState";
+import FirstRunTip from "@/components/common/FirstRunTip";
+import ConfirmDialog from "@/components/common/ConfirmDialog";
+import StatusBadge, { IDEA_STATUSES, STATUS_LABELS } from "@/components/common/StatusBadge";
 
 const log = logger("InboxPage");
 
-const STATUSES = ["new", "planned", "drafting", "published", "archived"];
-const STATUS_COLORS = {
-  new: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-  planned: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
-  drafting: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
-  published: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
-  archived: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
-};
+const STATUSES = IDEA_STATUSES;
 const PLATFORM_ICONS = {
   instagram: "📸", youtube: "▶️", twitter: "🐦", reddit: "🤖",
   tiktok: "🎵", web: "🌐", telegram: "✈️", manual: "📝",
+};
+
+const SORTS = {
+  newest: "Newest first",
+  oldest: "Oldest first",
 };
 
 function useDebounce(value, delay = 300) {
@@ -49,6 +76,10 @@ export default function InboxPage() {
   const [selected, setSelected] = useState(new Set());
   const [selectMode, setSelectMode] = useState(false);
   const [lastDeleted, setLastDeleted] = useState(null);
+  const [platformFilter, setPlatformFilter] = useState("all");
+  const [sort, setSort] = useState("newest");
+  const [pendingDelete, setPendingDelete] = useState(null); // single idea id
+  const [confirmBulk, setConfirmBulk] = useState(false);
   const urlInputRef = useRef(null);
 
   useEffect(() => {
@@ -102,7 +133,10 @@ export default function InboxPage() {
     setLoading(false);
   };
 
-  const filteredIdeas = debouncedSearch
+  // Platforms present in the current set (for the filter popover)
+  const availablePlatforms = [...new Set(ideas.map((i) => i.source_platform).filter(Boolean))];
+
+  let filteredIdeas = debouncedSearch
     ? ideas.filter((idea) => {
         const searchLower = debouncedSearch.toLowerCase();
         return (
@@ -113,6 +147,15 @@ export default function InboxPage() {
         );
       })
     : ideas;
+
+  if (platformFilter !== "all") {
+    filteredIdeas = filteredIdeas.filter((i) => i.source_platform === platformFilter);
+  }
+  if (sort === "oldest") {
+    filteredIdeas = [...filteredIdeas].reverse();
+  }
+
+  const activeFilterCount = (platformFilter !== "all" ? 1 : 0);
 
   const createIdea = async (e) => {
     e.preventDefault();
@@ -225,6 +268,7 @@ export default function InboxPage() {
       setSelectMode(false);
       fetchIdeas();
     }
+    setConfirmBulk(false);
   };
 
   const exportCSV = () => {
@@ -232,166 +276,290 @@ export default function InboxPage() {
     const rows = filteredIdeas.map((idea) => headers.map((h) => `"${String(idea[h] || "").replace(/"/g, '""')}"`).join(","));
     const csv = [headers.join(","), ...rows].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
+    const dl = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = `contentplanner-ideas-${new Date().toISOString().split("T")[0]}.csv`;
+    a.href = dl; a.download = `contentplanner-ideas-${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
-    URL.revokeObjectURL(url);
+    URL.revokeObjectURL(dl);
     showToast("CSV exported!", "success");
   };
 
-  const getDomain = (url) => { try { return new URL(url).hostname.replace("www.", ""); } catch { return url; } };
+  const getDomain = (u) => { try { return new URL(u).hostname.replace("www.", ""); } catch { return u; } };
 
   return (
-    <div className="p-4 sm:p-6 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-2">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Idea Inbox</h1>
-        <div className="flex items-center gap-2">
-          <button onClick={exportCSV} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800" title="Export CSV">
-            <Download className="h-3.5 w-3.5" /> Export
-          </button>
-          <button onClick={() => { setShowForm(!showForm); setTimeout(() => urlInputRef.current?.focus(), 50); }}
-            className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">
-            <Plus className="h-4 w-4" /> New Idea
-          </button>
-        </div>
-      </div>
+    <div className="mx-auto max-w-5xl p-4 sm:p-6">
+      <PageHeader
+        title="Idea Inbox"
+        subtitle="Capture links and notes, then triage them into your pipeline."
+        actions={
+          <>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" size="icon" onClick={exportCSV} aria-label="Export CSV">
+                  <Download className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Export filtered ideas as CSV</TooltipContent>
+            </Tooltip>
+            <Button onClick={() => { setShowForm((v) => !v); setTimeout(() => urlInputRef.current?.focus(), 50); }}>
+              <Plus className="h-4 w-4" /> New idea
+            </Button>
+          </>
+        }
+      />
+
+      <FirstRunTip id="inbox" title="Welcome to your Inbox" className="mb-5">
+        Paste a link or note with <b>New idea</b> (or press <kbd className="rounded border bg-muted px-1 text-xs">N</kbd>).
+        You can also share links straight from Instagram, YouTube or the web — install the app from the menu to enable one-tap capture.
+      </FirstRunTip>
 
       {showForm && (
-        <form onSubmit={createIdea} className="mb-6 rounded-xl border bg-white dark:bg-gray-800 dark:border-gray-700 p-4 shadow-sm">
-          <div className="space-y-3">
-            <input type="url" required ref={urlInputRef} value={url} onChange={(e) => setUrl(e.target.value)}
-              placeholder="Paste a URL..." className="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-white px-3 py-2 text-sm shadow-sm placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500" />
-            <textarea value={contextText} onChange={(e) => setContextText(e.target.value)}
-              placeholder="Why did you save this? Add some context..." rows={2}
-              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-white px-3 py-2 text-sm shadow-sm placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+        <Card className="mb-6 p-4">
+          <form onSubmit={createIdea} className="space-y-3">
+            <Input type="url" required ref={urlInputRef} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Paste a URL…" />
+            <Textarea value={contextText} onChange={(e) => setContextText(e.target.value)} placeholder="Why did you save this? Add some context…" rows={2} />
             <div className="flex gap-2">
-              <button type="submit" disabled={saving || !url.trim()} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50">
-                {saving ? "Saving..." : "Save idea"}</button>
-              <button type="button" onClick={() => setShowForm(false)} className="rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
+              <Button type="submit" disabled={saving || !url.trim()}>{saving ? "Saving…" : "Save idea"}</Button>
+              <Button type="button" variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
             </div>
-          </div>
-        </form>
+          </form>
+        </Card>
       )}
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search ideas..." className="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white pl-9 pr-3 py-2 text-sm placeholder:text-gray-400" />
-          {search && (
-            <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600">
-              <X className="h-4 w-4" /></button>
-          )}
+      {/* Filter / search toolbar */}
+      <div className="mb-4 space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <SearchInput value={search} onChange={setSearch} placeholder="Search ideas…" className="min-w-[200px] flex-1 sm:max-w-xs" />
+
+          {/* Filters popover */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1.5">
+                <SlidersHorizontal className="h-4 w-4" /> Filters
+                {activeFilterCount > 0 && <Badge className="ml-0.5 h-5 px-1.5 text-[10px]">{activeFilterCount}</Badge>}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-60">
+              <div className="space-y-3">
+                <div>
+                  <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Platform</p>
+                  <Select value={platformFilter} onValueChange={setPlatformFilter}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All platforms</SelectItem>
+                      {availablePlatforms.map((p) => (
+                        <SelectItem key={p} value={p}>
+                          {PLATFORM_ICONS[p] || "📝"} <span className="capitalize">{p}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {activeFilterCount > 0 && (
+                  <Button variant="ghost" size="sm" className="w-full" onClick={() => setPlatformFilter("all")}>
+                    Clear filters
+                  </Button>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          {/* Sort */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1.5">
+                <ArrowDownUp className="h-4 w-4" /> {SORTS[sort]}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuRadioGroup value={sort} onValueChange={setSort}>
+                {Object.entries(SORTS).map(([k, label]) => (
+                  <DropdownMenuRadioItem key={k} value={k}>{label}</DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={selectMode ? "secondary" : "outline"}
+                size="sm"
+                className="gap-1.5"
+                onClick={() => { setSelectMode((v) => !v); if (selectMode) setSelected(new Set()); }}
+              >
+                <CheckSquare className="h-4 w-4" /> Select
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Select multiple ideas to edit in bulk</TooltipContent>
+          </Tooltip>
         </div>
-        {["all", ...STATUSES].map((s) => (
-          <button key={s} onClick={() => setFilter(s)}
-            className={`rounded-full px-3 py-1 text-xs font-medium capitalize ${
-              filter === s ? "bg-brand-600 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
-            }`}>{s}</button>
-        ))}
+
+        {/* Status segmented filter */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {["all", ...STATUSES].map((s) => (
+            <button
+              key={s}
+              onClick={() => setFilter(s)}
+              className={cn(
+                "rounded-full px-3 py-1 text-xs font-medium capitalize transition-colors",
+                filter === s
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-accent hover:text-foreground"
+              )}
+            >
+              {s === "all" ? "All" : STATUS_LABELS[s]}
+            </button>
+          ))}
+        </div>
       </div>
 
+      {/* Bulk actions bar */}
       {selectMode && (
-        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-brand-50 dark:bg-brand-900/20 px-3 py-2">
-          <button onClick={selectAll} className="text-xs text-brand-600 hover:underline">
-            {selected.size === filteredIdeas.length ? "Deselect all" : `Select all (${filteredIdeas.length})`}
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
+          <button onClick={selectAll} className="text-xs font-medium text-primary hover:underline">
+            {selected.size === filteredIdeas.length && filteredIdeas.length > 0 ? "Deselect all" : `Select all (${filteredIdeas.length})`}
           </button>
-          <span className="text-xs text-gray-500 dark:text-gray-400">|</span>
-          <span className="text-xs text-gray-600 dark:text-gray-400">{selected.size} selected</span>
-          <select onChange={(e) => { if (e.target.value) bulkStatusChange(e.target.value); e.target.value = ""; }}
-            className="rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-800 px-2 py-1 text-xs">
-            <option value="">Change status...</option>
-            {STATUSES.map((s) => (<option key={s} value={s}>{s}</option>))}
-          </select>
-          <button onClick={bulkDelete} className="text-xs text-red-600 hover:underline ml-auto">Delete selected</button>
-          <button onClick={() => { setSelected(new Set()); setSelectMode(false); }} className="p-0.5 text-gray-400 hover:text-gray-600">
-            <X className="h-4 w-4" /></button>
+          <span className="text-xs text-muted-foreground">·</span>
+          <span className="text-xs text-muted-foreground">{selected.size} selected</span>
+          <Select onValueChange={(v) => bulkStatusChange(v)} value="">
+            <SelectTrigger className="h-8 w-40 text-xs"><SelectValue placeholder="Change status…" /></SelectTrigger>
+            <SelectContent>
+              {STATUSES.map((s) => (<SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>))}
+            </SelectContent>
+          </Select>
+          <Button
+            variant="ghost" size="sm"
+            className="ml-auto h-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            disabled={selected.size === 0}
+            onClick={() => setConfirmBulk(true)}
+          >
+            Delete selected
+          </Button>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setSelected(new Set()); setSelectMode(false); }}>
+            <X className="h-4 w-4" />
+          </Button>
         </div>
       )}
 
       {error && (
-        <div className="mb-6 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-700 dark:text-red-400 flex items-center justify-between">
+        <div className="mb-6 flex items-center justify-between rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
           <span>{error}</span>
-          <button onClick={fetchIdeas} className="ml-3 underline hover:no-underline text-xs">Try again</button>
+          <Button variant="link" size="sm" className="h-auto p-0 text-xs text-destructive" onClick={fetchIdeas}>Try again</Button>
         </div>
       )}
 
       {loading ? (
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="animate-pulse rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-              <div className="h-4 w-3/4 rounded bg-gray-200 dark:bg-gray-700" />
-              <div className="mt-2 h-3 w-1/2 rounded bg-gray-100 dark:bg-gray-700" />
-            </div>
+            <Card key={i} className="p-4">
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="mt-2 h-3 w-1/2" />
+            </Card>
           ))}
         </div>
       ) : filteredIdeas.length === 0 ? (
-        <div className="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-12 text-center text-gray-500 dark:text-gray-400">
-          <div className="mb-3 text-4xl">💡</div>
-          <p className="text-lg font-medium dark:text-white">{search ? "No matches found" : "No ideas yet"}</p>
-          <p className="mt-1 text-sm">
-            {search ? "Try a different search term." : "Paste a URL above or send a link to your Telegram bot."}
-          </p>
-        </div>
+        <EmptyState
+          icon={search || activeFilterCount ? Search : Lightbulb}
+          title={search || activeFilterCount ? "No matches found" : "No ideas yet"}
+          description={
+            search || activeFilterCount
+              ? "Try a different search term or clear your filters."
+              : "Paste a URL above, or share a link to ContentPlanner from any app."
+          }
+          actionLabel={search || activeFilterCount ? undefined : "Capture your first idea"}
+          onAction={search || activeFilterCount ? undefined : () => { setShowForm(true); setTimeout(() => urlInputRef.current?.focus(), 50); }}
+        />
       ) : (
         <div className="space-y-2">
-          {filteredIdeas.map((idea) => (
-            <div key={idea.id} onClick={() => selectMode ? toggleSelect(idea.id) : navigate(`/inbox/${idea.id}`)}
-              className={`group rounded-xl border bg-white dark:bg-gray-800 dark:border-gray-700 shadow-sm transition-shadow hover:shadow-md cursor-pointer ${
-                selected.has(idea.id) ? "ring-2 ring-brand-500" : ""
-              }`}>
-              {(() => {
-                const importStatus = getImportStatus(idea);
-                return (
-              <div className="flex items-start gap-3 p-4">
-                {selectMode && (
-                  <div className="mt-0.5" onClick={(e) => e.stopPropagation()}>
-                    {selected.has(idea.id)
-                      ? <CheckSquare className="h-5 w-5 text-brand-600" />
-                      : <Square className="h-5 w-5 text-gray-300" />}
-                  </div>
+          {filteredIdeas.map((idea) => {
+            const importStatus = getImportStatus(idea);
+            const isSelected = selected.has(idea.id);
+            return (
+              <Card
+                key={idea.id}
+                onClick={() => selectMode ? toggleSelect(idea.id) : navigate(`/inbox/${idea.id}`)}
+                className={cn(
+                  "group cursor-pointer p-0 transition-shadow hover:shadow-md",
+                  isSelected && "ring-2 ring-primary"
                 )}
-                {idea.og_image_url && (
-                  <img src={idea.og_image_url} alt="" className="w-16 h-16 rounded-lg object-cover bg-gray-100 flex-shrink-0" />
-                )}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs">{PLATFORM_ICONS[idea.source_platform] || "📝"}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase ${STATUS_COLORS[idea.status]}`}>{idea.status}</span>
-                    {importStatus !== "ready" && (
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase ${
-                        importStatus === "import_failed"
-                          ? "bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-300"
-                          : "bg-amber-100 text-amber-800 dark:bg-amber-900/20 dark:text-amber-300"
-                      }`}>
-                        {importStatus === "import_failed" ? "Import failed" : "Importing"}
-                      </span>
-                    )}
-                    <span className="text-[10px] text-gray-400 dark:text-gray-500 truncate">{getDomain(idea.source_url)}</span>
-                  </div>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                    {idea.title || idea.ai_summary || getDomain(idea.source_url)}
-                  </p>
-                  {idea.context_text && (
-                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 line-clamp-2">{idea.context_text}</p>
+              >
+                <div className="flex items-start gap-3 p-4">
+                  {selectMode && (
+                    <div className="mt-0.5" onClick={(e) => { e.stopPropagation(); toggleSelect(idea.id); }}>
+                      {isSelected
+                        ? <CheckSquare className="h-5 w-5 text-primary" />
+                        : <Square className="h-5 w-5 text-muted-foreground/50" />}
+                    </div>
                   )}
+                  {idea.og_image_url && (
+                    <img src={idea.og_image_url} alt="" className="h-16 w-16 flex-shrink-0 rounded-lg bg-muted object-cover" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1 flex items-center gap-2">
+                      <span className="text-xs">{PLATFORM_ICONS[idea.source_platform] || "📝"}</span>
+                      <StatusBadge status={idea.status} />
+                      {importStatus !== "ready" && (
+                        <Badge
+                          variant={importStatus === "import_failed" ? "destructive" : "secondary"}
+                          className={cn("text-[10px]", importStatus === "importing" && "bg-amber-100 text-amber-800 dark:bg-amber-900/20 dark:text-amber-300")}
+                        >
+                          {importStatus === "import_failed" ? "Import failed" : "Importing"}
+                        </Badge>
+                      )}
+                      <span className="truncate text-[10px] text-muted-foreground">{getDomain(idea.source_url)}</span>
+                    </div>
+                    <p className="truncate text-sm font-medium text-foreground">
+                      {idea.title || idea.ai_summary || getDomain(idea.source_url)}
+                    </p>
+                    {idea.context_text && (
+                      <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{idea.context_text}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 max-sm:opacity-100" onClick={(e) => e.stopPropagation()}>
+                    <Select value={idea.status} onValueChange={(v) => updateStatus(idea.id, v)}>
+                      <SelectTrigger className="h-8 w-28 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {STATUSES.map((s) => (<SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>))}
+                      </SelectContent>
+                    </Select>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => setPendingDelete(idea.id)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Delete idea</TooltipContent>
+                    </Tooltip>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
-                  <select value={idea.status} onChange={(e) => updateStatus(idea.id, e.target.value)}
-                    className="rounded border border-gray-200 dark:border-gray-600 dark:bg-gray-800 px-2 py-1 text-xs text-gray-600 dark:text-gray-400">
-                    {STATUSES.map((s) => (<option key={s} value={s}>{s}</option>))}
-                  </select>
-                  <button onClick={() => deleteIdea(idea.id)} className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600" title="Delete">
-                    <Trash2 className="h-4 w-4" /></button>
-                </div>
-              </div>
-                );
-              })()}
-            </div>
-          ))}
+              </Card>
+            );
+          })}
         </div>
       )}
+
+      {/* Confirm single delete */}
+      <ConfirmDialog
+        open={!!pendingDelete}
+        onOpenChange={(v) => !v && setPendingDelete(null)}
+        title="Delete this idea?"
+        description="You can undo this from the notification right after."
+        confirmLabel="Delete"
+        onConfirm={() => { deleteIdea(pendingDelete); setPendingDelete(null); }}
+      />
+
+      {/* Confirm bulk delete */}
+      <ConfirmDialog
+        open={confirmBulk}
+        onOpenChange={setConfirmBulk}
+        title={`Delete ${selected.size} ideas?`}
+        description="This can't be undone in bulk."
+        confirmLabel={`Delete ${selected.size}`}
+        onConfirm={bulkDelete}
+      />
     </div>
   );
 }

@@ -6,18 +6,56 @@ import { supabase } from "../lib/supabase";
 import { logger } from "../lib/logger";
 import { friendlyError, mapSupabaseError } from "../lib/errors";
 import { getIdeaMedia, getIdeaNotes, getImportStatus, getImportWarnings } from "../lib/ideaImport";
-import { ArrowLeft, ExternalLink, Calendar, Trash2, Edit3, Save, Sparkles, Lightbulb, FileText, Loader2, RefreshCw } from "lucide-react";
+import {
+  ArrowLeft, ExternalLink, Calendar, Trash2, Edit3, Save, Sparkles,
+  Lightbulb, FileText, Loader2, RefreshCw, Copy,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+} from "@/components/ui/select";
+import {
+  Tabs, TabsList, TabsTrigger, TabsContent,
+} from "@/components/ui/tabs";
+import {
+  Tooltip, TooltipTrigger, TooltipContent,
+} from "@/components/ui/tooltip";
+import HelpButton from "@/components/common/HelpButton";
+import ConfirmDialog from "@/components/common/ConfirmDialog";
+import StatusBadge, { IDEA_STATUSES, STATUS_LABELS } from "@/components/common/StatusBadge";
 
 const log = logger("IdeaDetail");
 
-const STATUSES = ["new", "planned", "drafting", "published", "archived"];
-const STATUS_COLORS = {
-  new: "bg-blue-100 text-blue-800",
-  planned: "bg-purple-100 text-purple-800",
-  drafting: "bg-amber-100 text-amber-800",
-  published: "bg-green-100 text-green-800",
-  archived: "bg-gray-100 text-gray-600",
-};
+const STATUSES = IDEA_STATUSES;
+
+function CopyButton({ getText, label = "Copy" }) {
+  const { showToast } = useToast();
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(getText());
+      showToast("Copied to clipboard.", "success");
+    } catch {
+      showToast("Couldn't copy.", "error");
+    }
+  };
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={copy} aria-label={label}>
+          <Copy className="h-3.5 w-3.5" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 export default function IdeaDetailPage() {
   const { id } = useParams();
@@ -30,6 +68,7 @@ export default function IdeaDetailPage() {
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [aiLoading, setAiLoading] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     if (!user || !id) return;
@@ -57,7 +96,7 @@ export default function IdeaDetailPage() {
       showToast(friendlyError(mapSupabaseError(error, "update-idea")), "error");
     } else {
       setIdea((prev) => ({ ...prev, status }));
-      showToast(`Status changed to ${status}.`, "success");
+      showToast(`Status changed to ${STATUS_LABELS[status]}.`, "success");
     }
   };
 
@@ -65,10 +104,7 @@ export default function IdeaDetailPage() {
     setSaving(true);
     const metadata = {
       ...(idea.metadata || {}),
-      import: {
-        ...(idea.metadata?.import || {}),
-        notes,
-      },
+      import: { ...(idea.metadata?.import || {}), notes },
     };
     const { error } = await supabase.from("ideas").update({ metadata }).eq("id", id);
     if (error) {
@@ -138,13 +174,15 @@ export default function IdeaDetailPage() {
 
   if (loading) {
     return (
-      <div className="p-6 max-w-2xl mx-auto">
-        <div className="animate-pulse space-y-4">
-          <div className="h-6 w-32 bg-gray-200 rounded" />
-          <div className="h-48 bg-gray-200 rounded-xl" />
-          <div className="h-4 w-3/4 bg-gray-200 rounded" />
-          <div className="h-4 w-1/2 bg-gray-200 rounded" />
-        </div>
+      <div className="mx-auto max-w-2xl p-4 sm:p-6">
+        <Skeleton className="mb-4 h-6 w-32" />
+        <Card className="overflow-hidden p-0">
+          <Skeleton className="h-56 w-full rounded-none" />
+          <div className="space-y-3 p-5">
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-4 w-1/2" />
+          </div>
+        </Card>
       </div>
     );
   }
@@ -155,274 +193,266 @@ export default function IdeaDetailPage() {
   const importStatus = getImportStatus(idea);
   const importWarnings = getImportWarnings(idea);
   const aiOutputs = idea.metadata?.ai || {};
+  // Generated outputs only — ai_summary is shown on the Details tab and must not
+  // suppress the AI tab's "no output yet" hint.
+  const hasAi = aiOutputs.brief || aiOutputs.hooks?.hooks?.length > 0 || aiOutputs.script;
 
   return (
-    <div className="p-4 sm:p-6 max-w-2xl mx-auto">
-      <button onClick={() => navigate(-1)} className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 mb-4">
-        <ArrowLeft className="h-4 w-4" />
-        Back
-      </button>
+    <div className="mx-auto max-w-2xl p-4 sm:p-6">
+      <div className="mb-4 flex items-center justify-between">
+        <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="-ml-2 text-muted-foreground">
+          <ArrowLeft className="h-4 w-4" /> Back
+        </Button>
+        <HelpButton />
+      </div>
 
-      <div className="rounded-xl border bg-white shadow-sm overflow-hidden">
+      <Card className="overflow-hidden p-0">
         {media.mediaUrl ? (
           media.mediaContentType.startsWith("video/") ? (
-            <video
-              src={media.mediaUrl}
-              poster={media.previewUrl || undefined}
-              controls
-              className="w-full h-64 object-cover bg-gray-950"
-            />
+            <video src={media.mediaUrl} poster={media.previewUrl || undefined} controls className="h-64 w-full bg-black object-cover" />
           ) : (
-            <img src={media.mediaUrl} alt="" className="w-full h-56 object-cover bg-gray-100" />
+            <img src={media.mediaUrl} alt="" className="h-56 w-full bg-muted object-cover" />
           )
         ) : media.previewUrl ? (
-          <img src={media.previewUrl} alt="" className="w-full h-56 object-cover bg-gray-100" />
+          <img src={media.previewUrl} alt="" className="h-56 w-full bg-muted object-cover" />
         ) : null}
 
         <div className="p-4 sm:p-5">
-          <div className="flex items-center gap-2 mb-3 flex-wrap">
-            <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium uppercase ${STATUS_COLORS[idea.status]}`}>
-              {idea.status}
-            </span>
-            <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-600">
-              {idea.source_platform || "manual"}
-            </span>
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <StatusBadge status={idea.status} />
+            <Badge variant="secondary" className="capitalize">{idea.source_platform || "manual"}</Badge>
             {importStatus !== "ready" && (
-              <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium uppercase ${
-                importStatus === "import_failed" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-800"
-              }`}>
+              <Badge
+                variant={importStatus === "import_failed" ? "destructive" : "secondary"}
+                className={cn(importStatus === "importing" && "bg-amber-100 text-amber-800 dark:bg-amber-900/20 dark:text-amber-300")}
+              >
                 {importStatus === "import_failed" ? "Import failed" : "Importing"}
-              </span>
+              </Badge>
             )}
             {idea.source_author && (
-              <span className="text-xs text-gray-500">by {idea.source_author}</span>
+              <span className="text-xs text-muted-foreground">by {idea.source_author}</span>
             )}
           </div>
 
-          <h1 className="text-lg font-semibold text-gray-900 mb-2">
+          <h1 className="mb-2 text-lg font-semibold text-foreground">
             {idea.title || idea.ai_summary || "Untitled idea"}
           </h1>
 
-          {/* Source link */}
-          <a
-            href={idea.source_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-sm text-brand-600 hover:underline mb-4"
-          >
+          <a href={idea.source_url} target="_blank" rel="noopener noreferrer"
+            className="mb-4 inline-flex items-center gap-1 text-sm text-primary hover:underline">
             {getDomain(idea.source_url)}
             <ExternalLink className="h-3.5 w-3.5" />
           </a>
 
           {importStatus === "importing" && (
-            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 flex items-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
-              Import is still running. Media and metadata will update when the source finishes processing.
-            </div>
+            <Alert variant="warning" className="mb-4">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <AlertDescription>Import is still running. Media and metadata will update when the source finishes processing.</AlertDescription>
+            </Alert>
           )}
-
           {importStatus === "import_failed" && (
-            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              The link was saved, but the media import did not complete cleanly. You can still use the saved caption and source link.
-            </div>
+            <Alert variant="destructive" className="mb-4">
+              <AlertDescription>The link was saved, but the media import did not complete cleanly. You can still use the saved caption and source link.</AlertDescription>
+            </Alert>
           )}
-
           {importWarnings.length > 0 && (
-            <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600 space-y-1">
-              {importWarnings.map((warning) => (
-                <p key={warning}>{warning}</p>
-              ))}
+            <div className="mb-4 space-y-1 rounded-lg border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+              {importWarnings.map((warning) => (<p key={warning}>{warning}</p>))}
             </div>
           )}
 
-          <div className="mt-4 p-3 rounded-lg bg-gray-50">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-medium text-gray-500 uppercase">Source Caption</span>
-            </div>
-            <p className="text-sm text-gray-700 whitespace-pre-wrap">
-              {idea.context_text || "No source caption was captured for this item."}
-            </p>
-          </div>
+          <Tabs defaultValue="details" className="mt-2">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="details">Details</TabsTrigger>
+              <TabsTrigger value="notes">Notes</TabsTrigger>
+              <TabsTrigger value="ai">AI {hasAi ? "✨" : ""}</TabsTrigger>
+            </TabsList>
 
-          <div className="mt-4 p-3 rounded-lg bg-gray-50">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-medium text-gray-500 uppercase">Notes</span>
-              {!editing && (
-                <button onClick={() => setEditing(true)} className="text-xs text-brand-600 hover:underline flex items-center gap-1">
-                  <Edit3 className="h-3 w-3" />
-                  Edit
-                </button>
+            {/* DETAILS */}
+            <TabsContent value="details" className="space-y-4">
+              <div className="rounded-lg bg-muted/50 p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs font-medium uppercase text-muted-foreground">Source caption</span>
+                  {idea.context_text && <CopyButton getText={() => idea.context_text} label="Copy caption" />}
+                </div>
+                <p className="whitespace-pre-wrap text-sm text-foreground">
+                  {idea.context_text || "No source caption was captured for this item."}
+                </p>
+              </div>
+
+              {idea.ai_summary && (
+                <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
+                  <span className="text-xs font-medium uppercase text-primary">AI summary</span>
+                  <p className="mt-1 text-sm text-foreground">{idea.ai_summary}</p>
+                </div>
               )}
-            </div>
-            {editing ? (
-              <div className="space-y-2">
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  rows={4}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                  autoFocus
-                />
-                <div className="flex gap-2">
-                  <button
-                    onClick={saveNotes}
-                    disabled={saving}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-50"
-                  >
-                    <Save className="h-3.5 w-3.5" />
-                    {saving ? "Saving..." : "Save"}
-                  </button>
-                  <button
-                    onClick={() => { setNotes(getIdeaNotes(idea)); setEditing(false); }}
-                    className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
-                  >
-                    Cancel
-                  </button>
+
+              <div className="grid grid-cols-2 gap-3 border-t pt-4 text-xs text-muted-foreground">
+                <div>
+                  <span className="text-muted-foreground/70">Created</span>
+                  <p>{new Date(idea.created_at).toLocaleString()}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground/70">Updated</span>
+                  <p>{new Date(idea.updated_at).toLocaleString()}</p>
                 </div>
               </div>
-            ) : (
-              <p className="text-sm text-gray-700 whitespace-pre-wrap">
-                {getIdeaNotes(idea) || "No notes yet. Add context about why you saved this idea."}
-              </p>
-            )}
-          </div>
+            </TabsContent>
 
-          {/* AI summary */}
-          {idea.ai_summary && (
-            <div className="mt-3 p-3 rounded-lg bg-purple-50 border border-purple-100">
-              <span className="text-xs font-medium text-purple-600 uppercase">AI Summary</span>
-              <p className="mt-1 text-sm text-purple-900">{idea.ai_summary}</p>
-            </div>
-          )}
-
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              onClick={() => generateAi("brief")}
-              disabled={aiLoading !== ""}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-            >
-              {aiLoading === "brief" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-              Generate brief
-            </button>
-            <button
-              onClick={() => generateAi("hooks")}
-              disabled={aiLoading !== ""}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-            >
-              {aiLoading === "hooks" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lightbulb className="h-4 w-4" />}
-              Generate hooks
-            </button>
-            <button
-              onClick={() => generateAi("script")}
-              disabled={aiLoading !== ""}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-brand-300 px-3 py-1.5 text-sm text-brand-700 hover:bg-brand-50 disabled:opacity-50"
-            >
-              {aiLoading === "script" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-              Draft script
-            </button>
-          </div>
-
-          {aiOutputs.brief && (
-            <div className="mt-4 rounded-lg border border-gray-200 p-3">
-              <p className="text-xs font-medium uppercase text-gray-500">Brief</p>
-              <p className="mt-1 text-sm text-gray-800">{aiOutputs.brief.summary}</p>
-              {Array.isArray(aiOutputs.brief.why_it_works) && aiOutputs.brief.why_it_works.length > 0 && (
-                <div className="mt-2 space-y-1">
-                  {aiOutputs.brief.why_it_works.map((item) => (
-                    <p key={item} className="text-xs text-gray-600">• {item}</p>
-                  ))}
+            {/* NOTES */}
+            <TabsContent value="notes">
+              <div className="rounded-lg bg-muted/50 p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs font-medium uppercase text-muted-foreground">Your notes</span>
+                  {!editing && (
+                    <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-primary" onClick={() => setEditing(true)}>
+                      <Edit3 className="h-3 w-3" /> Edit
+                    </Button>
+                  )}
                 </div>
-              )}
-              {Array.isArray(aiOutputs.brief.creator_angles) && aiOutputs.brief.creator_angles.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {aiOutputs.brief.creator_angles.map((item) => (
-                    <span key={item} className="rounded-full bg-gray-100 px-2 py-1 text-[11px] text-gray-600">{item}</span>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {aiOutputs.hooks?.hooks?.length > 0 && (
-            <div className="mt-4 rounded-lg border border-gray-200 p-3">
-              <p className="text-xs font-medium uppercase text-gray-500">Hooks</p>
-              <div className="mt-2 space-y-1.5">
-                {aiOutputs.hooks.hooks.map((hook) => (
-                  <p key={hook} className="text-sm text-gray-800">{hook}</p>
-                ))}
+                {editing ? (
+                  <div className="space-y-2">
+                    <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={5} autoFocus />
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={saveNotes} disabled={saving}>
+                        <Save className="h-3.5 w-3.5" /> {saving ? "Saving…" : "Save"}
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => { setNotes(getIdeaNotes(idea)); setEditing(false); }}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="whitespace-pre-wrap text-sm text-foreground">
+                    {getIdeaNotes(idea) || "No notes yet. Add context about why you saved this idea."}
+                  </p>
+                )}
               </div>
-            </div>
-          )}
+            </TabsContent>
 
-          {aiOutputs.script && (
-            <div className="mt-4 rounded-lg border border-gray-200 p-3">
-              <p className="text-xs font-medium uppercase text-gray-500">Script Draft</p>
-              {aiOutputs.script.title && <p className="mt-1 text-sm font-medium text-gray-900">{aiOutputs.script.title}</p>}
-              {aiOutputs.script.hook && <p className="mt-2 text-sm text-gray-800">{aiOutputs.script.hook}</p>}
-              {Array.isArray(aiOutputs.script.beats) && aiOutputs.script.beats.length > 0 && (
-                <div className="mt-2 space-y-1">
-                  {aiOutputs.script.beats.map((beat, index) => (
-                    <p key={`${index}-${beat}`} className="text-xs text-gray-600">{index + 1}. {beat}</p>
-                  ))}
+            {/* AI */}
+            <TabsContent value="ai" className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" onClick={() => generateAi("brief")} disabled={aiLoading !== ""}>
+                  {aiLoading === "brief" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  Generate brief
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => generateAi("hooks")} disabled={aiLoading !== ""}>
+                  {aiLoading === "hooks" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lightbulb className="h-4 w-4" />}
+                  Generate hooks
+                </Button>
+                <Button size="sm" onClick={() => generateAi("script")} disabled={aiLoading !== ""}>
+                  {aiLoading === "script" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                  Draft script
+                </Button>
+              </div>
+
+              {!hasAi && (
+                <p className="rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">
+                  No AI output yet. Generate a brief, hooks, or a script to get started.
+                </p>
+              )}
+
+              {aiOutputs.brief && (
+                <div className="rounded-lg border p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium uppercase text-muted-foreground">Brief</p>
+                    <CopyButton getText={() => aiOutputs.brief.summary || ""} label="Copy brief" />
+                  </div>
+                  <p className="mt-1 text-sm text-foreground">{aiOutputs.brief.summary}</p>
+                  {Array.isArray(aiOutputs.brief.why_it_works) && aiOutputs.brief.why_it_works.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {aiOutputs.brief.why_it_works.map((item) => (<p key={item} className="text-xs text-muted-foreground">• {item}</p>))}
+                    </div>
+                  )}
+                  {Array.isArray(aiOutputs.brief.creator_angles) && aiOutputs.brief.creator_angles.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {aiOutputs.brief.creator_angles.map((item) => (
+                        <span key={item} className="rounded-full bg-muted px-2 py-1 text-[11px] text-muted-foreground">{item}</span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
-              {aiOutputs.script.caption_draft && (
-                <div className="mt-3 rounded-lg bg-gray-50 p-3 text-sm text-gray-700 whitespace-pre-wrap">
-                  {aiOutputs.script.caption_draft}
+
+              {aiOutputs.hooks?.hooks?.length > 0 && (
+                <div className="rounded-lg border p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium uppercase text-muted-foreground">Hooks</p>
+                    <CopyButton getText={() => aiOutputs.hooks.hooks.join("\n")} label="Copy hooks" />
+                  </div>
+                  <div className="mt-2 space-y-1.5">
+                    {aiOutputs.hooks.hooks.map((hook) => (<p key={hook} className="text-sm text-foreground">{hook}</p>))}
+                  </div>
                 </div>
               )}
-              {aiOutputs.script.cta && <p className="mt-2 text-xs font-medium text-brand-700">{aiOutputs.script.cta}</p>}
-            </div>
-          )}
 
-          {/* Metadata */}
-          <div className="mt-4 pt-4 border-t grid grid-cols-2 gap-3 text-xs text-gray-500">
-            <div>
-              <span className="text-gray-400">Created</span>
-              <p>{new Date(idea.created_at).toLocaleString()}</p>
-            </div>
-            <div>
-              <span className="text-gray-400">Updated</span>
-              <p>{new Date(idea.updated_at).toLocaleString()}</p>
-            </div>
-          </div>
+              {aiOutputs.script && (
+                <div className="rounded-lg border p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium uppercase text-muted-foreground">Script draft</p>
+                    <CopyButton
+                      getText={() => [aiOutputs.script.title, aiOutputs.script.hook, ...(aiOutputs.script.beats || []), aiOutputs.script.caption_draft, aiOutputs.script.cta].filter(Boolean).join("\n\n")}
+                      label="Copy script"
+                    />
+                  </div>
+                  {aiOutputs.script.title && <p className="mt-1 text-sm font-medium text-foreground">{aiOutputs.script.title}</p>}
+                  {aiOutputs.script.hook && <p className="mt-2 text-sm text-foreground">{aiOutputs.script.hook}</p>}
+                  {Array.isArray(aiOutputs.script.beats) && aiOutputs.script.beats.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {aiOutputs.script.beats.map((beat, index) => (
+                        <p key={`${index}-${beat}`} className="text-xs text-muted-foreground">{index + 1}. {beat}</p>
+                      ))}
+                    </div>
+                  )}
+                  {aiOutputs.script.caption_draft && (
+                    <div className="mt-3 whitespace-pre-wrap rounded-lg bg-muted/50 p-3 text-sm text-foreground">
+                      {aiOutputs.script.caption_draft}
+                    </div>
+                  )}
+                  {aiOutputs.script.cta && <p className="mt-2 text-xs font-medium text-primary">{aiOutputs.script.cta}</p>}
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
         </div>
+
+        <Separator />
 
         {/* Actions */}
-        <div className="border-t p-4 flex items-center gap-2 flex-wrap">
-          <select
-            value={idea.status}
-            onChange={(e) => updateStatus(e.target.value)}
-            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
-          >
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-          <button
-            onClick={scheduleIdea}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-brand-300 px-3 py-1.5 text-sm text-brand-700 hover:bg-brand-50"
-          >
-            <Calendar className="h-4 w-4" />
-            Schedule for today
-          </button>
-          <button
-            onClick={fetchIdea}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Refresh
-          </button>
+        <div className="flex flex-wrap items-center gap-2 p-4">
+          <Select value={idea.status} onValueChange={updateStatus}>
+            <SelectTrigger className="h-9 w-32"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {STATUSES.map((s) => (<SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>))}
+            </SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={scheduleIdea}>
+            <Calendar className="h-4 w-4" /> Schedule for today
+          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-9 w-9" onClick={fetchIdea} aria-label="Refresh">
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Refresh</TooltipContent>
+          </Tooltip>
           <div className="flex-1" />
-          <button
-            onClick={deleteIdea}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
-          >
-            <Trash2 className="h-4 w-4" />
-            Delete
-          </button>
+          <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => setConfirmDelete(true)}>
+            <Trash2 className="h-4 w-4" /> Delete
+          </Button>
         </div>
-      </div>
+      </Card>
+
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title="Delete this idea?"
+        description="This permanently removes the idea and its AI outputs. This can't be undone."
+        confirmLabel="Delete"
+        onConfirm={deleteIdea}
+      />
     </div>
   );
 }

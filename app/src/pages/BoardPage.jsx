@@ -5,15 +5,20 @@ import { useToast } from "../contexts/ToastContext";
 import { supabase } from "../lib/supabase";
 import { logger } from "../lib/logger";
 import { usePullToRefresh } from "../hooks/usePullToRefresh";
-import { Lightbulb, ChevronRight } from "lucide-react";
+import { LayoutGrid, ChevronRight } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
+import PageHeader from "@/components/common/PageHeader";
+import EmptyState from "@/components/common/EmptyState";
+import FirstRunTip from "@/components/common/FirstRunTip";
 
 const log = logger("BoardPage");
 
 const COLUMNS = [
-  { id: "new", label: "Ideas", color: "bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800", dot: "bg-blue-500" },
-  { id: "planned", label: "Planned", color: "bg-purple-50 dark:bg-purple-900/10 border-purple-200 dark:border-purple-800", dot: "bg-purple-500" },
-  { id: "drafting", label: "Creating", color: "bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800", dot: "bg-amber-500" },
-  { id: "published", label: "Published", color: "bg-green-50 dark:bg-green-900/10 border-green-200 dark:border-green-800", dot: "bg-green-500" },
+  { id: "new", label: "Ideas", tint: "bg-blue-50/60 dark:bg-blue-900/10 border-blue-200/70 dark:border-blue-800/50", dot: "bg-blue-500" },
+  { id: "planned", label: "Planned", tint: "bg-purple-50/60 dark:bg-purple-900/10 border-purple-200/70 dark:border-purple-800/50", dot: "bg-purple-500" },
+  { id: "drafting", label: "Creating", tint: "bg-amber-50/60 dark:bg-amber-900/10 border-amber-200/70 dark:border-amber-800/50", dot: "bg-amber-500" },
+  { id: "published", label: "Published", tint: "bg-green-50/60 dark:bg-green-900/10 border-green-200/70 dark:border-green-800/50", dot: "bg-green-500" },
 ];
 
 export default function BoardPage() {
@@ -23,6 +28,7 @@ export default function BoardPage() {
   const [columns, setColumns] = useState({ new: [], planned: [], drafting: [], published: [] });
   const [loading, setLoading] = useState(true);
   const [dragging, setDragging] = useState(null);
+  const [dragOver, setDragOver] = useState(null);
 
   const fetchBoard = useCallback(async () => {
     const { data } = await supabase.from("ideas").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
@@ -40,7 +46,6 @@ export default function BoardPage() {
   const { containerRef, refreshing } = usePullToRefresh(fetchBoard);
 
   const moveCard = async (ideaId, toStatus) => {
-    // Optimistic update
     setColumns((prev) => {
       const next = { ...prev };
       for (const col of Object.keys(next)) {
@@ -54,7 +59,7 @@ export default function BoardPage() {
     const { error } = await supabase.from("ideas").update({ status: toStatus }).eq("id", ideaId);
     if (error) {
       showToast("Couldn't move idea.", "error");
-      fetchBoard(); // Revert
+      fetchBoard();
     } else {
       showToast("Idea moved.", "success");
     }
@@ -69,17 +74,18 @@ export default function BoardPage() {
     e.preventDefault();
     const ideaId = e.dataTransfer.getData("ideaId") || dragging;
     setDragging(null);
+    setDragOver(null);
     if (ideaId) moveCard(ideaId, toStatus);
   };
 
   if (loading) {
     return (
-      <div className="p-6">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="p-4 sm:p-6">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {COLUMNS.map((col) => (
-            <div key={col.id} className="rounded-xl border dark:border-gray-700 p-4 animate-pulse">
-              <div className="h-5 w-20 bg-gray-200 dark:bg-gray-700 rounded mb-3" />
-              {[1, 2].map((i) => (<div key={i} className="h-24 bg-gray-100 dark:bg-gray-800 rounded-lg mb-2" />))}
+            <div key={col.id} className="rounded-xl border p-4">
+              <Skeleton className="mb-3 h-5 w-20" />
+              {[1, 2].map((i) => (<Skeleton key={i} className="mb-2 h-24 w-full rounded-lg" />))}
             </div>
           ))}
         </div>
@@ -92,64 +98,78 @@ export default function BoardPage() {
   return (
     <div ref={containerRef} className="p-4 sm:p-6" style={refreshing ? { opacity: 0.7 } : {}}>
       {refreshing && (
-        <div className="fixed top-0 left-0 right-0 z-50 flex justify-center pt-2">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-brand-600 border-t-transparent" />
+        <div className="fixed left-0 right-0 top-0 z-50 flex justify-center pt-2">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Content Pipeline</h1>
-          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{totalIdeas} ideas across {COLUMNS.length} stages</p>
-        </div>
-      </div>
+      <PageHeader
+        title="Content Pipeline"
+        subtitle={`${totalIdeas} ${totalIdeas === 1 ? "idea" : "ideas"} across ${COLUMNS.length} stages`}
+      />
 
       {totalIdeas === 0 ? (
-        <div className="rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-12 text-center">
-          <div className="mb-4 text-5xl">📋</div>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Your pipeline is empty</h3>
-          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Capture ideas to see them flow through this board.</p>
-          <button onClick={() => navigate("/inbox")}
-            className="mt-5 inline-flex items-center gap-2 rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-brand-700 min-h-[44px]">
-            Go to inbox <ChevronRight className="h-4 w-4" />
-          </button>
-        </div>
+        <>
+          <FirstRunTip id="board" title="This is your pipeline" className="mb-5">
+            Each column is a stage. Drag a card from <b>Ideas</b> all the way to <b>Published</b> as you create. Capture some ideas first to fill it up.
+          </FirstRunTip>
+          <EmptyState
+            icon={LayoutGrid}
+            title="Your pipeline is empty"
+            description="Capture ideas to see them flow through this board."
+            actionLabel="Go to inbox"
+            onAction={() => navigate("/inbox")}
+          />
+        </>
       ) : (
-        <div className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory" style={{ WebkitOverflowScrolling: "touch" }}>
-          {COLUMNS.map((col) => (
-            <div key={col.id}
-              className="flex-shrink-0 w-[280px] sm:w-[300px] snap-start"
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => handleDrop(e, col.id)}>
-              <div className={`rounded-xl border ${col.color} p-3 min-h-[200px]`}>
-                <div className="flex items-center gap-2 mb-3 px-1">
-                  <div className={`h-2.5 w-2.5 rounded-full ${col.dot}`} />
-                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{col.label}</h3>
-                  <span className="rounded-full bg-white dark:bg-gray-800 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:text-gray-400">{columns[col.id]?.length || 0}</span>
-                </div>
-                <div className="space-y-2 min-h-[60px]">
-                  {columns[col.id]?.map((idea) => (
-                    <div key={idea.id}
-                      draggable
-                      onDragStart={(e) => handleDragStart(e, idea.id)}
-                      onClick={() => navigate(`/inbox/${idea.id}`)}
-                      className="rounded-lg border dark:border-gray-600 bg-white dark:bg-gray-800 p-3 shadow-sm cursor-pointer hover:shadow-md active:shadow transition-shadow">
-                      <p className="text-xs font-medium text-gray-900 dark:text-white truncate">
-                        {idea.context_text || idea.source_url?.slice(0, 80) || "Untitled"}
-                      </p>
-                      <p className="mt-1 text-[10px] text-gray-400 dark:text-gray-500 truncate">
-                        {idea.source_url ? new URL(idea.source_url).hostname : "No source"}
-                      </p>
-                    </div>
-                  ))}
-                  {columns[col.id]?.length === 0 && (
-                    <p className="text-xs text-gray-400 dark:text-gray-500 italic py-4 text-center">Drop ideas here</p>
-                  )}
+        <>
+          <FirstRunTip id="board-drag" className="mb-4">
+            Tip: drag any card between columns to update its status instantly.
+          </FirstRunTip>
+          <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-4" style={{ WebkitOverflowScrolling: "touch" }}>
+            {COLUMNS.map((col) => (
+              <div key={col.id}
+                className="w-[280px] flex-shrink-0 snap-start sm:w-[300px]"
+                onDragOver={(e) => { e.preventDefault(); setDragOver(col.id); }}
+                onDragLeave={() => setDragOver((c) => (c === col.id ? null : c))}
+                onDrop={(e) => handleDrop(e, col.id)}>
+                <div className={cn(
+                  "min-h-[200px] rounded-xl border p-3 transition-all",
+                  col.tint,
+                  dragOver === col.id && "ring-2 ring-primary ring-offset-2 ring-offset-background"
+                )}>
+                  <div className="mb-3 flex items-center gap-2 px-1">
+                    <div className={cn("h-2.5 w-2.5 rounded-full", col.dot)} />
+                    <h3 className="text-sm font-semibold text-foreground">{col.label}</h3>
+                    <span className="rounded-full bg-card px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{columns[col.id]?.length || 0}</span>
+                  </div>
+                  <div className="min-h-[60px] space-y-2">
+                    {columns[col.id]?.map((idea) => (
+                      <div key={idea.id}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, idea.id)}
+                        onClick={() => navigate(`/inbox/${idea.id}`)}
+                        className={cn(
+                          "cursor-pointer rounded-lg border bg-card p-3 shadow-sm transition-shadow hover:shadow-md active:shadow",
+                          dragging === idea.id && "opacity-50"
+                        )}>
+                        <p className="truncate text-xs font-medium text-foreground">
+                          {idea.context_text || idea.source_url?.slice(0, 80) || "Untitled"}
+                        </p>
+                        <p className="mt-1 truncate text-[10px] text-muted-foreground">
+                          {idea.source_url ? new URL(idea.source_url).hostname.replace("www.", "") : "No source"}
+                        </p>
+                      </div>
+                    ))}
+                    {columns[col.id]?.length === 0 && (
+                      <p className="py-4 text-center text-xs italic text-muted-foreground">Drop ideas here</p>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );

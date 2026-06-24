@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { ToastProvider } from "./contexts/ToastContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { TooltipProvider } from "./components/ui/tooltip";
 import ErrorBoundary from "./components/ErrorBoundary";
 import AppLayout from "./components/AppLayout";
 import LoginPage from "./pages/LoginPage";
@@ -18,8 +19,8 @@ function ProtectedRoute({ children }) {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-brand-600 border-t-transparent" />
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
       </div>
     );
   }
@@ -35,6 +36,7 @@ export default function App() {
         <ThemeProvider>
           <AuthProvider>
             <ToastProvider>
+              <TooltipProvider delayDuration={200}>
               <Routes>
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/share" element={<SharePage />} />
@@ -54,6 +56,7 @@ export default function App() {
                 </Route>
                 <Route path="*" element={<Navigate to="/inbox" replace />} />
               </Routes>
+              </TooltipProvider>
             </ToastProvider>
           </AuthProvider>
         </ThemeProvider>
