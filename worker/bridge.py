@@ -109,6 +109,7 @@ def run_last30days(topic: dict[str, Any], deep: bool = False) -> Tuple[dict[str,
     sources = select_sources(topic)
     query = build_topic_query(topic)
     plan = planner_llm.build_query_plan_llm(topic, sources.split(","))
+    planning_provider = llm_client.last_provider()  # "cli"=subscription, "api"=credits
     if plan is None:
         if not llm_client.provider_available():
             raise RuntimeError(
@@ -191,6 +192,8 @@ def run_last30days(topic: dict[str, Any], deep: bool = False) -> Tuple[dict[str,
     artifacts = report.get("artifacts") or {}
     if isinstance(artifacts, dict):
         raw_path = artifacts.get("save_path") or artifacts.get("raw_output_path")
+    # Record which billing tier served query planning so the run is auditable.
+    report["ai_planning_provider"] = planning_provider
     return report, raw_path
 
 
@@ -341,6 +344,7 @@ def sync_report_to_supabase(client: Any, topic: dict[str, Any], run_id: str, rep
     # provider produces a brief we fail the run loudly instead of storing fake
     # intelligence. create_brief_llm never raises; it returns None on failure.
     brief = create_brief_llm(report, topic)
+    synthesis_provider = llm_client.last_provider()  # "cli"=subscription, "api"=credits
     if brief is None:
         if not llm_client.provider_available():
             raise RuntimeError(
@@ -358,12 +362,21 @@ def sync_report_to_supabase(client: Any, topic: dict[str, Any], run_id: str, rep
         **brief,
     }).execute()
 
+    # Make the AI billing tier auditable: "cli" draws on the Claude subscription
+    # (the intended path, $0 API), "api" means it fell back to API credits.
+    warnings = list(report.get("warnings") or [])
+    planning_provider = report.get("ai_planning_provider")
+    warnings.append(
+        f"ai_billing: planning={planning_provider or 'none'}, "
+        f"synthesis={synthesis_provider or 'none'}"
+    )
+
     client.table("listening_runs").update({
         "status": "succeeded",
         "finished_at": utc_now(),
         "source_counts": source_counts(report),
         "query_plan": report.get("query_plan") or {},
-        "warnings": report.get("warnings") or [],
+        "warnings": warnings,
         "raw_output_path": raw_path,
         "total_candidates": len(candidates),
         "total_clusters": len(clusters),

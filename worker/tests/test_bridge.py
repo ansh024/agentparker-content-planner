@@ -169,6 +169,13 @@ class BridgeTests(unittest.TestCase):
 
         self.assertEqual(stats["total_new_hits"], 0)
         self.assertEqual(db["listening_hits"][0]["sighting_count"], 3)
+        # The run records which AI billing tier served it (auditable subscription
+        # vs API-credit usage).
+        run_warnings = db["listening_runs"][0].get("warnings") or []
+        self.assertTrue(
+            any(str(w).startswith("ai_billing:") for w in run_warnings),
+            f"expected an ai_billing warning, got {run_warnings}",
+        )
 
 
 if __name__ == "__main__":

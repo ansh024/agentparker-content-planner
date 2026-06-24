@@ -296,6 +296,19 @@ def _extract_sdk_text(response: Any) -> Optional[str]:
     return joined or None
 
 
+# Provider tag of the most recent generate_json call ("cli" = subscription,
+# "api" = API credits, None = no provider served). Lets bridge.py record which
+# billing tier actually served a run without threading the tag through every
+# caller's return signature. Single-user worker runs topics sequentially, so a
+# module global is sufficient (no concurrent generations interleave).
+_LAST_PROVIDER: Optional[str] = None
+
+
+def last_provider() -> Optional[str]:
+    """Provider tag of the most recent ``generate_json`` call, or ``None``."""
+    return _LAST_PROVIDER
+
+
 def generate_json(
     system: str,
     user: str,
@@ -308,18 +321,22 @@ def generate_json(
     is schema-agnostic (it relies on the prompt demanding strict JSON); the API
     tier uses ``schema`` for structured output when provided. Returns
     ``(obj, provider_tag)`` where ``provider_tag`` is ``"cli"``, ``"api"`` or
-    ``None``. Never raises.
+    ``None``. Never raises. Also records the tag in ``_LAST_PROVIDER``.
     """
+    global _LAST_PROVIDER
     model = synth_model()
 
     obj = _call_claude_cli(system, user, model)
     if obj is not None:
+        _LAST_PROVIDER = "cli"
         return obj, "cli"
 
     obj = _call_anthropic_sdk(system, user, model, schema=schema, max_tokens=max_tokens)
     if obj is not None:
+        _LAST_PROVIDER = "api"
         return obj, "api"
 
+    _LAST_PROVIDER = None
     return None, None
 
 
