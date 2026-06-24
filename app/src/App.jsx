@@ -11,6 +11,7 @@ import IdeaDetailPage from "./pages/IdeaDetailPage";
 import BoardPage from "./pages/BoardPage";
 import CalendarPage from "./pages/CalendarPage";
 import TopicsPage from "./pages/TopicsPage";
+import TopicDetailPage from "./pages/TopicDetailPage";
 import SettingsPage from "./pages/SettingsPage";
 import SharePage from "./pages/SharePage";
 
@@ -52,6 +53,7 @@ export default function App() {
                   <Route path="/board" element={<BoardPage />} />
                   <Route path="/calendar" element={<CalendarPage />} />
                   <Route path="/topics" element={<TopicsPage />} />
+                  <Route path="/topics/:id" element={<TopicDetailPage />} />
                   <Route path="/settings" element={<SettingsPage />} />
                 </Route>
                 <Route path="*" element={<Navigate to="/inbox" replace />} />
