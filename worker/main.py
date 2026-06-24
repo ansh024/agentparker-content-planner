@@ -5,7 +5,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from supabase import create_client
 
@@ -108,20 +109,29 @@ def run_topic(payload: RunTopicRequest, x_worker_secret: Optional[str] = Header(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.post("/run-due-topics")
-def run_due_topics(x_worker_secret: Optional[str] = Header(default=None)):
-    require_secret(x_worker_secret)
+def process_due_topics() -> None:
+    """Run all due topics. Executed in the background so the HTTP caller (cron)
+    gets a fast 202 instead of waiting minutes (REVIEW.md A4)."""
     client = supabase_client()
     result = client.table("listening_topics").select("*").eq("active", True).execute()
     topics = [topic for topic in result.data or [] if is_due(topic)]
-    outcomes = []
     for topic in topics:
         run_id = create_or_start_run(client, topic, None)
         try:
             report, raw_path = run_last30days(topic, deep=False)
-            stats = sync_report_to_supabase(client, topic, run_id, report, raw_path)
-            outcomes.append({"topic_id": topic["id"], "run_id": run_id, "ok": True, **stats})
+            sync_report_to_supabase(client, topic, run_id, report, raw_path)
         except Exception as exc:
             fail_run(client, run_id, str(exc))
-            outcomes.append({"topic_id": topic["id"], "run_id": run_id, "ok": False, "error": str(exc)})
-    return {"ok": True, "ran": len(outcomes), "outcomes": outcomes}
+
+
+@app.post("/run-due-topics", status_code=202)
+def run_due_topics(
+    background_tasks: BackgroundTasks,
+    x_worker_secret: Optional[str] = Header(default=None),
+):
+    require_secret(x_worker_secret)
+    # Validate config eagerly so a misconfigured worker fails fast (and the cron
+    # sees the error) rather than failing silently in the background.
+    supabase_client()
+    background_tasks.add_task(process_due_topics)
+    return JSONResponse(status_code=202, content={"ok": True, "status": "accepted"})

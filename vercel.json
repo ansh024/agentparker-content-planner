@@ -8,5 +8,8 @@
     { "source": "/favicon.svg", "destination": "/favicon.svg" },
     { "source": "/manifest.json", "destination": "/manifest.json" },
     { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "crons": [
+    { "path": "/api/cron/listening", "schedule": "0 13 * * *" }
   ]
 }

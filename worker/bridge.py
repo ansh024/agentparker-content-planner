@@ -9,9 +9,16 @@ from pathlib import Path
 from typing import Any, Optional, Tuple
 from uuid import uuid4
 
-from synthesize import create_brief
+import llm_client
+import planner_llm
+from synthesize_llm import create_brief_llm
 
-DEFAULT_SOURCES = "reddit,hackernews,youtube,github,polymarket,grounding"
+# Free, no-cost retrieval sources used on every scheduled run. ScrapeCreators
+# sources (tiktok/instagram/threads) are added only when a topic asks for them
+# and a key exists — see select_sources().
+FREE_SOURCES = ["reddit", "hackernews", "github", "youtube", "grounding"]
+SCRAPECREATORS_SOURCES = ["tiktok", "instagram", "threads"]
+DEFAULT_SOURCES = ",".join(FREE_SOURCES)
 
 
 def utc_now() -> str:
@@ -29,6 +36,52 @@ def build_topic_query(topic: dict[str, Any]) -> str:
     return " ".join(part for part in parts if part).strip()
 
 
+def _as_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
+
+
+# last30days as retrieval-only — verified finding (REVIEW.md A1):
+#   Read of vendor/.../lib/providers.resolve_runtime confirms that with
+#   LAST30DAYS_REASONING_PROVIDER=auto and NO paid key (GOOGLE/OPENAI/XAI/
+#   OPENROUTER), it returns (local-deterministic runtime, provider=None) and
+#   never raises. planner.plan_query and rerank.rerank_candidates both branch on
+#   `if provider and model` and fall back to deterministic/heuristic scoring when
+#   provider is None. Passing --plan skips the planner entirely. A `--diagnose`
+#   dry-run with all provider keys unset confirms: reasoning_provider="auto",
+#   local_mode=true, providers all false, pipeline completes. => A scheduled run
+#   costs ~$0; all real intelligence lives in create_brief_llm (subscription).
+#   Only --deep-research forces a provider (OPENROUTER_API_KEY) — manual-only.
+#
+# Query PLANNING, however, is NOT free: a keyword-echo plan returns near-zero
+# results (the engine's documented failure mode). So we generate the plan with a
+# real Claude provider (planner_llm, subscription-billed) and pass it via --plan.
+# There is deliberately NO deterministic fallback — if no Claude provider is
+# configured the run fails loudly telling the operator to set CLAUDE_CODE_OAUTH_TOKEN
+# or ANTHROPIC_API_KEY, rather than silently producing a broken search.
+
+
+def select_sources(topic: dict[str, Any]) -> str:
+    """Pick the comma-separated source list for a topic.
+
+    Always returns the free base sources. Appends ScrapeCreators sources
+    (tiktok/instagram/threads) only when ``SCRAPECREATORS_API_KEY`` is set AND
+    the topic's ``platform_focus`` mentions one of them.
+    """
+    sources = list(FREE_SOURCES)
+    if os.environ.get("SCRAPECREATORS_API_KEY"):
+        focus = " ".join(_as_list(topic.get("platform_focus"))).lower()
+        extras = [source for source in SCRAPECREATORS_SOURCES if source in focus]
+        sources.extend(extras)
+    # De-dupe preserving order.
+    seen: set[str] = set()
+    ordered = [s for s in sources if not (s in seen or seen.add(s))]
+    return ",".join(ordered)
+
+
 def last30days_script_path() -> Path:
     default_dir = Path(__file__).parent / "vendor" / "last30days-skill" / "skills" / "last30days"
     skill_dir = Path(os.environ.get("LAST30DAYS_SKILL_DIR", default_dir)).expanduser()
@@ -44,37 +97,74 @@ def extract_json(stdout: str) -> dict[str, Any]:
 
 
 def run_last30days(topic: dict[str, Any], deep: bool = False) -> Tuple[dict[str, Any], Optional[str]]:
+    # Retrieval-only cost model (docs/plans REVIEW.md A1):
+    #  * --plan skips the engine's internal *paid* LLM planner. We supply the plan
+    #    ourselves: an LLM-generated plan billed to the Claude SUBSCRIPTION
+    #    (planner_llm). There is NO deterministic fallback — the engine authors
+    #    intend the host LLM to be the planner, and a plain keyword echo
+    #    under-retrieves (the documented near-zero-results failure mode). If no
+    #    Claude provider is configured the run fails loudly (below).
+    #  * Free sources + --quick + heuristic rerank → no paid reasoning provider.
+    #  * --deep-research (paid) is wired ONLY to the manual "Deep run".
+    sources = select_sources(topic)
+    query = build_topic_query(topic)
+    plan = planner_llm.build_query_plan_llm(topic, sources.split(","))
+    if plan is None:
+        if not llm_client.provider_available():
+            raise RuntimeError(
+                "Listening requires a Claude provider for query planning. On the worker, set "
+                "CLAUDE_CODE_OAUTH_TOKEN (run `claude setup-token` for subscription billing) or "
+                "ANTHROPIC_API_KEY. There is no deterministic fallback — a keyword-echo plan "
+                "returns near-zero results."
+            )
+        raise RuntimeError(
+            "Query planning failed: a Claude provider is configured but returned no usable plan "
+            "(check the worker logs and your Claude quota/rate limits)."
+        )
     memory_dir = Path(os.environ.get("LAST30DAYS_MEMORY_DIR", "/data/last30days")).expanduser()
     memory_dir.mkdir(parents=True, exist_ok=True)
 
-    sources = os.environ.get("LAST30DAYS_SOURCES", DEFAULT_SOURCES)
-    query = build_topic_query(topic)
+    lookback_days = int(topic.get("lookback_days") or 30)
     script = last30days_script_path()
     cmd = [
         os.environ.get("PYTHON_BIN", sys.executable),
         str(script),
         query,
+        "--plan",
+        json.dumps(plan),
         "--emit=json",
         "--quick",
+        "--days",
+        str(lookback_days),
         "--search",
         sources,
         "--save-dir",
         str(memory_dir),
     ]
     if deep:
+        # Paid path: deep-research enables perplexity via OpenRouter (~$0.90/query).
+        print(
+            "[bridge] WARNING: --deep-research is the PAID path "
+            "(~$0.90/query via OpenRouter); use only for manual Deep runs.",
+            file=sys.stderr,
+        )
         cmd.append("--deep-research")
+    # Optional persistence to the engine's SQLite store; off by default since we
+    # already dedupe via listening_hits.
+    if os.environ.get("LAST30DAYS_USE_STORE", "").strip().lower() in {"1", "true", "yes", "on"}:
+        cmd.append("--store")
 
     env = os.environ.copy()
     env.setdefault("LAST30DAYS_MEMORY_DIR", str(memory_dir))
-    env.setdefault(
-        "LAST30DAYS_REASONING_PROVIDER",
-        "openrouter" if env.get("OPENROUTER_API_KEY") else "auto",
-    )
-    env.setdefault("INCLUDE_SOURCES", "reddit,hackernews,youtube,github,polymarket,grounding")
+    # Do NOT force a paid reasoning provider on scheduled runs. With --plan the
+    # planner is skipped; with no paid key the engine reranks heuristically and
+    # never raises (providers.resolve_runtime returns a local/None provider).
+    # Leaving this unset/auto keeps cost at ~$0. (REVIEW.md A1.)
+    env.setdefault("LAST30DAYS_REASONING_PROVIDER", "auto")
+    env.setdefault("INCLUDE_SOURCES", sources)
+    # Env hardening: prevents the Safari-cookie failure seen in prod.
     env.setdefault("BIRD_DISABLE_BROWSER_COOKIES", "1")
     env.setdefault("FROM_BROWSER", "none")
-    if env.get("SCRAPECREATORS_API_KEY"):
-        env["INCLUDE_SOURCES"] = env["INCLUDE_SOURCES"] + ",tiktok,instagram,threads,pinterest"
 
     proc = subprocess.run(
         cmd,
@@ -246,7 +336,21 @@ def sync_report_to_supabase(client: Any, topic: dict[str, Any], run_id: str, rep
     for cluster_id, hit_ids in hit_ids_by_cluster.items():
         client.table("listening_clusters").update({"representative_hit_ids": hit_ids[:8]}).eq("id", cluster_id).execute()
 
-    brief = create_brief(report, topic)
+    # Real AI synthesis (subscription-billed). No template fallback — a templated
+    # brief is the low-quality output we set out to replace, so if no Claude
+    # provider produces a brief we fail the run loudly instead of storing fake
+    # intelligence. create_brief_llm never raises; it returns None on failure.
+    brief = create_brief_llm(report, topic)
+    if brief is None:
+        if not llm_client.provider_available():
+            raise RuntimeError(
+                "Listening requires a Claude provider for brief synthesis. On the worker, set "
+                "CLAUDE_CODE_OAUTH_TOKEN (run `claude setup-token`) or ANTHROPIC_API_KEY."
+            )
+        raise RuntimeError(
+            "Brief synthesis failed: a Claude provider is configured but returned no usable brief "
+            "(check the worker logs and your Claude quota/rate limits)."
+        )
     client.table("listening_briefs").insert({
         "topic_id": topic_id,
         "run_id": run_id,

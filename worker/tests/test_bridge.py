@@ -1,11 +1,24 @@
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+import bridge
 from bridge import build_topic_query, candidate_payload, source_counts, sync_report_to_supabase
+
+# A minimal valid synthesized brief; synthesis has no template fallback, so the
+# sync path requires create_brief_llm to return one.
+_FAKE_BRIEF = {
+    "headline": "x",
+    "what_changed": "y",
+    "audience_pains": [],
+    "content_angles": [{"title": "a", "angle": "b", "why": "c"}],
+    "scripts_or_hooks": [],
+    "source_citations": [],
+}
 
 
 class FakeResult:
@@ -145,13 +158,14 @@ class BridgeTests(unittest.TestCase):
             }],
         }
 
-        stats = sync_report_to_supabase(
-            client,
-            {"id": "topic-1", "user_id": "user-1", "name": "AI ads"},
-            "run-1",
-            report,
-            None,
-        )
+        with mock.patch.object(bridge, "create_brief_llm", return_value=dict(_FAKE_BRIEF)):
+            stats = sync_report_to_supabase(
+                client,
+                {"id": "topic-1", "user_id": "user-1", "name": "AI ads"},
+                "run-1",
+                report,
+                None,
+            )
 
         self.assertEqual(stats["total_new_hits"], 0)
         self.assertEqual(db["listening_hits"][0]["sighting_count"], 3)

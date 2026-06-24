@@ -1,23 +1,14 @@
-import { useState } from "react";
 import { useTheme } from "../contexts/ThemeContext";
 import { useAuth } from "../contexts/AuthContext";
-import { useToast } from "../contexts/ToastContext";
-import { supabase } from "../lib/supabase";
-import { Moon, Sun, Link, Check, Copy } from "lucide-react";
+import { Moon, Sun } from "lucide-react";
 
 export default function SettingsPage() {
   const { theme, toggle } = useTheme();
   const { user } = useAuth();
-  const { showToast } = useToast();
-  const [telegramLinked, setTelegramLinked] = useState(false);
-  const [linkCode, setLinkCode] = useState("");
-
-  const generateLinkCode = () => {
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-    setLinkCode(code);
-    // Store code temporarily — user sends this to the bot
-    showToast(`Your link code is ${code}. Send this to the Telegram bot to connect.`, "info", 8000);
-  };
+  const isInstalled =
+    typeof window !== "undefined" &&
+    window.matchMedia &&
+    window.matchMedia("(display-mode: standalone)").matches;
 
   return (
     <div className="p-4 sm:p-6 max-w-2xl mx-auto">
@@ -49,89 +40,50 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* Connected Accounts */}
+        {/* Capture */}
         <section className="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-5 shadow-sm">
-          <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">Connected Accounts</h2>
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">Capture</h2>
           <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-            Connect accounts to capture ideas from different platforms.
+            Save links to your inbox from any app on your phone — no bot, no setup.
           </p>
 
-          {/* Telegram */}
-          <div className="rounded-lg border dark:border-gray-700 p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/30">
-                  <span className="text-lg">✈️</span>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">Telegram Bot</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Forward links to @contentplannerbot to save them instantly
-                  </p>
-                </div>
-              </div>
-              {telegramLinked ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-green-100 dark:bg-green-900/30 px-3 py-1 text-xs font-medium text-green-800 dark:text-green-300">
-                  <Check className="h-3 w-3" /> Connected
-                </span>
-              ) : (
-                <button
-                  onClick={generateLinkCode}
-                  className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
-                >
-                  Connect
-                </button>
-              )}
+          {!isInstalled && (
+            <div className="mb-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3">
+              <p className="text-xs text-amber-800 dark:text-amber-300">
+                You're in a browser tab. Install ContentPlanner to your home screen to enable sharing from other apps.
+              </p>
             </div>
+          )}
 
-            {linkCode && (
-              <div className="mt-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-3">
-                <p className="text-xs text-blue-800 dark:text-blue-300">
-                  <strong>Step 1:</strong> Open Telegram and send <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">/start {linkCode}</code> to <strong>@contentplannerbot</strong>
-                </p>
-                <p className="text-xs text-blue-800 dark:text-blue-300 mt-1">
-                  <strong>Step 2:</strong> Once confirmed, click Verify below.
-                </p>
-                <div className="flex gap-2 mt-2">
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(`/start ${linkCode}`);
-                      showToast("Copied! Paste in Telegram.", "success");
-                    }}
-                    className="inline-flex items-center gap-1 rounded bg-blue-200 dark:bg-blue-800 px-2 py-1 text-xs text-blue-800 dark:text-blue-200 hover:bg-blue-300"
-                  >
-                    <Copy className="h-3 w-3" /> Copy code
-                  </button>
-                  <button
-                    onClick={() => {
-                      setTelegramLinked(true);
-                      setLinkCode("");
-                      showToast("Telegram bot connected!", "success");
-                    }}
-                    className="rounded bg-blue-200 dark:bg-blue-800 px-2 py-1 text-xs text-blue-800 dark:text-blue-200 hover:bg-blue-300"
-                  >
-                    I've sent the command
-                  </button>
-                </div>
+          {/* Step 1 — install */}
+          <div className="rounded-lg border dark:border-gray-700 p-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-100 dark:bg-brand-900/30">
+                <span className="text-lg">📲</span>
               </div>
-            )}
+              <div>
+                <p className="text-sm font-medium text-gray-900 dark:text-white">1. Install on your phone</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Open this site in your mobile browser, tap <strong>Share</strong> / <strong>⋯</strong>, then{" "}
+                  <strong>Add to Home Screen</strong>.
+                </p>
+              </div>
+            </div>
           </div>
 
-          {/* Instagram placeholder */}
-          <div className="mt-3 rounded-lg border dark:border-gray-700 p-4 opacity-60">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-pink-100 dark:bg-pink-900/30">
-                  <span className="text-lg">📸</span>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">Instagram</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">DM reels to your connected business account (coming soon)</p>
-                </div>
+          {/* Step 2 — share */}
+          <div className="mt-3 rounded-lg border dark:border-gray-700 p-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-100 dark:bg-brand-900/30">
+                <span className="text-lg">🔗</span>
               </div>
-              <span className="rounded-full bg-gray-100 dark:bg-gray-700 px-3 py-1 text-xs text-gray-500 dark:text-gray-400">
-                Coming soon
-              </span>
+              <div>
+                <p className="text-sm font-medium text-gray-900 dark:text-white">2. Share to your inbox</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  From any app (Instagram, YouTube, TikTok, your browser), tap{" "}
+                  <strong>Share → ContentPlanner</strong> to save a link straight to your inbox.
+                </p>
+              </div>
             </div>
           </div>
         </section>

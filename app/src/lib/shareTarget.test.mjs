@@ -10,16 +10,23 @@ describe("resolveSharePayload", () => {
     assert.deepEqual(payload, {
       url: "https://youtu.be/abc",
       title: "Video",
+      text: "",
     });
   });
 
-  it("falls back to the first URL in text", () => {
+  it("falls back to the first URL in text when url is empty (Android share)", () => {
     const payload = resolveSharePayload(new URLSearchParams("text=Watch%20https%3A%2F%2Fexample.com%2Fpost%20later"));
 
-    assert.deepEqual(payload, {
-      url: "https://example.com/post",
-      title: "",
-    });
+    assert.equal(payload.url, "https://example.com/post");
+    assert.equal(payload.title, "");
+    assert.equal(payload.text, "Watch https://example.com/post later");
+  });
+
+  it("pulls a YouTube URL out of text so it is detected as youtube", () => {
+    const payload = resolveSharePayload(new URLSearchParams("text=Check%20https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3Dabc123"));
+
+    assert.equal(payload.url, "https://www.youtube.com/watch?v=abc123");
+    assert.equal(detectPlatform(payload.url), "youtube");
   });
 });
 
