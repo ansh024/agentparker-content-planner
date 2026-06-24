@@ -31,3 +31,5 @@ docs/journal/applied/
 # Test screenshots
 scripts/tests/screenshots/
 .vercel
+__pycache__/
+*.pyc

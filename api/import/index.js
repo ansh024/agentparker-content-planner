@@ -195,9 +195,21 @@ function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+// True only when text carries real content. Strips platform-suffix noise like
+// " - YouTube" so an empty YouTube page title doesn't count as meaningful input.
+function isMeaningfulText(value = "") {
+  const cleaned = String(value || "")
+    .replace(/\s*[-|–—]\s*(YouTube|Instagram|TikTok|X|Twitter|Reddit)\s*$/i, "")
+    .trim();
+  return cleaned.length >= 3;
+}
+
 async function importSource({ serviceClient, userId, ideaId, sourceUrl, platform, sharedTitle, sharedText, notes }) {
   if (platform === "instagram") {
     return importInstagramSource({ serviceClient, userId, ideaId, sourceUrl, sharedTitle, sharedText, notes });
+  }
+  if (platform === "youtube") {
+    return importYouTubeSource({ serviceClient, userId, ideaId, sourceUrl, sharedTitle, sharedText, notes });
   }
   return importGenericSource({ serviceClient, userId, ideaId, sourceUrl, platform, sharedTitle, sharedText, notes });
 }
@@ -249,6 +261,8 @@ async function importInstagramSource({ serviceClient, userId, ideaId, sourceUrl,
     caption,
     author,
     mediaType: parsed.mediaType,
+    transcript,
+    platform: "instagram",
   }).catch(() => "");
 
   const importStatus = media || preview || caption ? "ready" : "import_failed";
@@ -289,6 +303,107 @@ async function importInstagramSource({ serviceClient, userId, ideaId, sourceUrl,
   };
 }
 
+async function fetchYouTubeOembed(sourceUrl) {
+  try {
+    const url = new URL("https://www.youtube.com/oembed");
+    url.searchParams.set("url", sourceUrl);
+    url.searchParams.set("format", "json");
+    const response = await fetch(url, {
+      headers: { "user-agent": USER_AGENT, accept: "application/json" },
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    return {
+      title: normalizeWhitespace(data.title || ""),
+      author: normalizeWhitespace(data.author_name || ""),
+      thumbnailUrl: data.thumbnail_url || "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function importYouTubeSource({ serviceClient, userId, ideaId, sourceUrl, sharedTitle, sharedText, notes }) {
+  const warnings = [];
+  // oEmbed gives reliable title/author/thumbnail where YouTube's HTML og: tags don't.
+  const oembed = await fetchYouTubeOembed(sourceUrl);
+  if (!oembed) {
+    warnings.push("YouTube oEmbed lookup failed; using shared text only.");
+  }
+
+  // og:description is still useful as extra caption context when available.
+  let ogDescription = "";
+  try {
+    const pageHtml = await fetchHtml(sourceUrl);
+    ogDescription = getMetaTag(pageHtml, "og:description");
+  } catch (error) {
+    warnings.push(`Page fetch skipped: ${error.message}`);
+  }
+
+  const title = oembed?.title || normalizeWhitespace(sharedTitle) || "";
+  const author = oembed?.author || extractHandle(sharedText, sharedTitle) || "";
+  const sharedCaption = readSharedCaption(sharedText, sharedTitle, sourceUrl);
+  // Feed the AI real content: oEmbed title + og:description (+ any shared caption).
+  const caption = normalizeWhitespace(
+    [title, ogDescription, sharedCaption].filter(Boolean).join(" — "),
+  );
+
+  let preview = null;
+  const previewSource = oembed?.thumbnailUrl || "";
+  if (previewSource) {
+    preview = await uploadRemoteAsset({
+      serviceClient,
+      bucket: IMPORT_BUCKET,
+      userId,
+      ideaId,
+      kind: "preview",
+      remoteUrl: previewSource,
+      fallbackContentType: "image/jpeg",
+    }).catch((error) => {
+      warnings.push(`Preview upload skipped: ${error.message}`);
+      return null;
+    });
+  }
+
+  const aiSummary = await summarizeImportedSource({
+    title,
+    caption,
+    author,
+    mediaType: "video",
+    platform: "youtube",
+  }).catch(() => "");
+
+  return {
+    canonicalUrl: sourceUrl,
+    author,
+    caption,
+    displayTitle: deriveTitle({ caption: title || caption, fallback: sharedTitle }),
+    previewUrl: preview?.publicUrl || previewSource || "",
+    aiSummary,
+    metadata: {
+      import: {
+        import_status: "ready",
+        finished_at: new Date().toISOString(),
+        notes: notes || null,
+        creator_handle: author || null,
+        media_type: "video",
+        caption_source: oembed ? "youtube_oembed" : "share_text",
+        transcript_source: null,
+        transcript_excerpt: null,
+        storage_paths: {
+          media: null,
+          preview: preview || null,
+        },
+        raw_provider_payload: {
+          oembed: oembed || null,
+          meta: { og_description: ogDescription || null },
+        },
+        warnings,
+      },
+    },
+  };
+}
+
 async function importGenericSource({ serviceClient, userId, ideaId, sourceUrl, platform, sharedTitle, sharedText, notes }) {
   const warnings = [];
   const pageHtml = await fetchHtml(sourceUrl);
@@ -317,6 +432,7 @@ async function importGenericSource({ serviceClient, userId, ideaId, sourceUrl, p
     caption: description,
     author: "",
     mediaType: "link",
+    platform,
   }).catch(() => "");
 
   return {
@@ -455,7 +571,18 @@ async function fetchInstagramTranscript(sourceUrl, warnings) {
   }
 }
 
-async function summarizeImportedSource({ title, caption, author, mediaType }) {
+async function summarizeImportedSource({ title, caption, author, mediaType, transcript, platform }) {
+  // Guard: if there's no meaningful title AND no caption/description AND no transcript,
+  // skip the LLM call entirely so we never store a refusal-style "I don't see the content"
+  // summary. Return a neutral placeholder instead.
+  const hasTitle = isMeaningfulText(title);
+  const hasCaption = isMeaningfulText(caption);
+  const hasTranscript = isMeaningfulText(transcript);
+  if (!hasTitle && !hasCaption && !hasTranscript) {
+    const label = platform || mediaType || "the web";
+    return `Saved from ${label} — open to view.`;
+  }
+
   const prompt = `You are helping a content creator organize inspiration.
 
 Source author: ${author || "Unknown"}
@@ -463,7 +590,7 @@ Source type: ${mediaType}
 Title: ${title || "Untitled"}
 Caption or body:
 ${caption || "None"}
-
+${transcript ? `Transcript excerpt:\n${transcript}\n` : ""}
 Write a crisp 2 sentence summary explaining what this source is about and why it could matter for a creator.`;
 
   if (process.env.OPENAI_API_KEY) {

@@ -112,11 +112,20 @@ export function readSharedCaption(sharedText = "", sharedTitle = "", sourceUrl =
 }
 
 export function deriveTitle({ handle = "", caption = "", fallback = "" }) {
-  const source = normalizeWhitespace(caption || fallback);
+  // normalizeWhitespace already decodes HTML entities, but decode again defensively
+  // so a stored title never contains raw entities like &quot; or &#x1f3c6;.
+  const source = decodeHtmlEntities(normalizeWhitespace(caption || fallback));
   if (!source && handle) return `${handle} post`;
   const firstSentence = source.split(/\n|(?<=[.!?])\s/)[0]?.trim() || source;
-  const clipped = firstSentence.length > 88 ? `${firstSentence.slice(0, 85).trim()}...` : firstSentence;
-  return handle ? `${handle}: ${clipped}` : clipped || "Imported idea";
+  const clipped = clampTitle(firstSentence);
+  const full = handle ? `${handle}: ${clipped}` : clipped || "Imported idea";
+  // Hard cap the final stored title to ~100 chars regardless of handle length.
+  return full.length > 100 ? `${full.slice(0, 97).trim()}...` : full;
+}
+
+function clampTitle(text = "") {
+  if (text.length <= 88) return text;
+  return `${text.slice(0, 85).trim()}...`;
 }
 
 export function inferMediaType({ url = "", videoUrl = "", imageUrl = "" }) {
