@@ -6,27 +6,31 @@ import { logger } from "../lib/logger";
 import { friendlyError, mapSupabaseError } from "../lib/errors";
 import { usePullToRefresh } from "../hooks/usePullToRefresh";
 import {
-  ChevronDown,
-  ChevronRight,
-  ExternalLink,
-  FileText,
-  Lightbulb,
-  LoaderCircle,
-  Pause,
-  Play,
-  Plus,
-  Search,
-  Sparkles,
-  Trash2,
-  X,
+  ChevronDown, ChevronRight, ExternalLink, FileText, Lightbulb,
+  LoaderCircle, Pause, Play, Plus, Search, Sparkles, Trash2, X, Radio,
 } from "lucide-react";
 import {
-  createTopicAndSearch,
-  getLatestRun,
-  getTopicStatus,
-  groupByTopic,
-  mergeTopicHits,
+  createTopicAndSearch, getLatestRun, getTopicStatus, groupByTopic, mergeTopicHits,
 } from "../lib/topics";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import {
+  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+} from "@/components/ui/select";
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
+} from "@/components/ui/sheet";
+import {
+  Tooltip, TooltipTrigger, TooltipContent,
+} from "@/components/ui/tooltip";
+import PageHeader from "@/components/common/PageHeader";
+import EmptyState from "@/components/common/EmptyState";
+import ConfirmDialog from "@/components/common/ConfirmDialog";
 
 const log = logger("TopicsPage");
 const FREQUENCIES = ["daily", "weekly"];
@@ -45,6 +49,16 @@ function citationUrl(citation) {
   return typeof citation === "string" ? citation : citation.url;
 }
 
+const EMPTY_FORM = {
+  name: "",
+  audience: "",
+  contentFormat: "short-form video",
+  keywords: "",
+  competitors: "",
+  platformFocus: "YouTube, Instagram, TikTok",
+  frequency: "daily",
+};
+
 export default function TopicsPage() {
   const { user } = useAuth();
   const { showToast } = useToast();
@@ -59,18 +73,10 @@ export default function TopicsPage() {
   const [runningSearch, setRunningSearch] = useState({});
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [showInfo, setShowInfo] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
-  const [form, setForm] = useState({
-    name: "",
-    audience: "",
-    contentFormat: "short-form video",
-    keywords: "",
-    competitors: "",
-    platformFocus: "YouTube, Instagram, TikTok",
-    frequency: "daily",
-  });
+  const [pendingDelete, setPendingDelete] = useState(null); // { id, name }
+  const [form, setForm] = useState(EMPTY_FORM);
 
   const updateForm = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
 
@@ -78,32 +84,10 @@ export default function TopicsPage() {
     if (!user) return;
     log.debug("Fetching listening dashboard data");
 
-    const topicsReq = supabase
-      .from("listening_topics")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false });
-
-    const runsReq = supabase
-      .from("listening_runs")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .limit(80);
-
-    const briefsReq = supabase
-      .from("listening_briefs")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .limit(40);
-
-    const clustersReq = supabase
-      .from("listening_clusters")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("score", { ascending: false, nullsFirst: false })
-      .limit(120);
+    const topicsReq = supabase.from("listening_topics").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
+    const runsReq = supabase.from("listening_runs").select("*").eq("user_id", user.id).order("created_at", { ascending: false }).limit(80);
+    const briefsReq = supabase.from("listening_briefs").select("*").eq("user_id", user.id).order("created_at", { ascending: false }).limit(40);
+    const clustersReq = supabase.from("listening_clusters").select("*").eq("user_id", user.id).order("score", { ascending: false, nullsFirst: false }).limit(120);
 
     const [topicsRes, runsRes, briefsRes, clustersRes] = await Promise.all([topicsReq, runsReq, briefsReq, clustersReq]);
 
@@ -130,13 +114,9 @@ export default function TopicsPage() {
 
   const loadHits = async (topicId) => {
     setLoadingHits((prev) => ({ ...prev, [topicId]: true }));
-    const { data } = await supabase
-      .from("listening_hits")
-      .select("*")
-      .eq("topic_id", topicId)
+    const { data } = await supabase.from("listening_hits").select("*").eq("topic_id", topicId)
       .order("last_seen_at", { ascending: false, nullsFirst: false })
-      .order("captured_at", { ascending: false })
-      .limit(80);
+      .order("captured_at", { ascending: false }).limit(80);
     setHits((prev) => ({ ...prev, [topicId]: mergeTopicHits(prev[topicId], data || []) }));
     setLoadingHits((prev) => ({ ...prev, [topicId]: false }));
   };
@@ -164,10 +144,7 @@ export default function TopicsPage() {
       if (!token) throw new Error("Please log in to continue.");
       const res = await fetch("/api/listening/run", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ topicId: topic.id, deep }),
       });
 
@@ -214,10 +191,7 @@ export default function TopicsPage() {
           if (!token) throw new Error("Please log in to continue.");
           const res = await fetch("/api/topics", {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
             body: JSON.stringify(topicPayload),
           });
           const result = await res.json();
@@ -231,15 +205,7 @@ export default function TopicsPage() {
         },
       });
 
-      setForm({
-        name: "",
-        audience: "",
-        contentFormat: "short-form video",
-        keywords: "",
-        competitors: "",
-        platformFocus: "YouTube, Instagram, TikTok",
-        frequency: "daily",
-      });
+      setForm(EMPTY_FORM);
       setShowForm(false);
     } catch (err) {
       log.error("Topic creation failed", { error: err });
@@ -263,12 +229,8 @@ export default function TopicsPage() {
 
   const captureAsIdea = async (hit) => {
     const { error: err } = await supabase.from("ideas").insert({
-      user_id: user.id,
-      source_url: hit.source_url,
-      source_platform: hit.platform || "listening",
-      context_text: hit.snippet || hit.title || "",
-      title: hit.title || "Listening idea",
-      status: "new",
+      user_id: user.id, source_url: hit.source_url, source_platform: hit.platform || "listening",
+      context_text: hit.snippet || hit.title || "", title: hit.title || "Listening idea", status: "new",
       metadata: { listening_hit_id: hit.id, run_id: hit.run_id, cluster_id: hit.cluster_id },
     });
     if (err) showToast("Couldn't save as idea.", "error");
@@ -284,12 +246,7 @@ export default function TopicsPage() {
       context_text: angle?.angle || cluster.summary || cluster.title,
       title: angle?.title || cluster.title,
       status: "new",
-      metadata: {
-        topic_id: topic.id,
-        cluster_id: cluster.id,
-        run_id: cluster.run_id,
-        evidence: angle?.evidence || [],
-      },
+      metadata: { topic_id: topic.id, cluster_id: cluster.id, run_id: cluster.run_id, evidence: angle?.evidence || [] },
     });
     if (err) showToast("Couldn't save idea.", "error");
     else showToast("Idea saved to inbox.", "success");
@@ -323,123 +280,42 @@ export default function TopicsPage() {
   };
 
   return (
-    <div
-      ref={containerRef}
-      className="p-4 sm:p-6 max-w-4xl mx-auto"
-      style={refreshing ? { opacity: 0.7 } : {}}
-    >
+    <div ref={containerRef} className="mx-auto max-w-4xl p-4 sm:p-6" style={refreshing ? { opacity: 0.7 } : {}}>
       {refreshing && (
-        <div className="fixed top-0 left-0 right-0 z-50 flex justify-center pt-2">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-brand-600 border-t-transparent" />
+        <div className="fixed left-0 right-0 top-0 z-50 flex justify-center pt-2">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-2">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Listening</h1>
-          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            Creator-grade research briefs from Reddit, HN, YouTube, GitHub, prediction markets, and the web.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={() => setShowInfo(!showInfo)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">
-            How it works
-          </button>
-          <button onClick={() => setShowForm(!showForm)}
-            className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-xs font-medium text-white hover:bg-brand-700">
-            <Plus className="h-4 w-4" /> Add Topic
-          </button>
-        </div>
-      </div>
-
-      {showInfo && (
-        <div className="mb-6 rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 p-4">
-          <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-200 mb-2">How listening works</h3>
-          <ol className="space-y-1.5 text-xs text-blue-800 dark:text-blue-300 pl-4 list-decimal">
-            <li>Add the audience, format, keywords, tools, and target platforms for a creator niche.</li>
-            <li>Search now queues a last30days research run and shows queued/running/succeeded state.</li>
-            <li>The brief answers what to make now, why it matters, and which sources prove it.</li>
-            <li>Clusters and raw hits stay below the brief so each run builds on prior sightings.</li>
-          </ol>
-        </div>
-      )}
-
-      {showForm && (
-        <form onSubmit={createTopic} className="mb-6 rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
-              Topic name
-              <input type="text" required value={form.name} onChange={(e) => updateForm("name", e.target.value)}
-                placeholder="e.g. AI video creation" className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-white px-3 py-2 text-sm" />
-            </label>
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
-              Audience
-              <input type="text" value={form.audience} onChange={(e) => updateForm("audience", e.target.value)}
-                placeholder="e.g. creators selling templates" className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-white px-3 py-2 text-sm" />
-            </label>
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
-              Content format
-              <input type="text" value={form.contentFormat} onChange={(e) => updateForm("contentFormat", e.target.value)}
-                placeholder="e.g. short-form video" className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-white px-3 py-2 text-sm" />
-            </label>
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
-              Frequency
-              <select value={form.frequency} onChange={(e) => updateForm("frequency", e.target.value)}
-                className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-white px-3 py-2 text-sm">
-                {FREQUENCIES.map((frequency) => (
-                  <option key={frequency} value={frequency}>{frequency === "daily" ? "Daily" : "Weekly"}</option>
-                ))}
-              </select>
-            </label>
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 sm:col-span-2">
-              Keywords
-              <input type="text" required value={form.keywords} onChange={(e) => updateForm("keywords", e.target.value)}
-                placeholder="e.g. AI UGC, product demos, video ads" className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-white px-3 py-2 text-sm" />
-            </label>
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
-              Competitors/tools
-              <input type="text" value={form.competitors} onChange={(e) => updateForm("competitors", e.target.value)}
-                placeholder="e.g. Runway, HeyGen, Arcads" className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-white px-3 py-2 text-sm" />
-            </label>
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
-              Platform focus
-              <input type="text" value={form.platformFocus} onChange={(e) => updateForm("platformFocus", e.target.value)}
-                placeholder="e.g. YouTube, Instagram, TikTok" className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-white px-3 py-2 text-sm" />
-            </label>
-          </div>
-          <div className="mt-4 flex gap-2">
-            <button type="submit" disabled={saving}
-              className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-50">
-              {saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-              {saving ? "Creating..." : "Create & search now"}
-            </button>
-            <button type="button" onClick={() => setShowForm(false)}
-              className="rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
-          </div>
-        </form>
-      )}
+      <PageHeader
+        title="Listening"
+        subtitle="Creator-grade research briefs from Reddit, HN, YouTube, GitHub, prediction markets, and the web."
+        actions={
+          <Button onClick={() => setShowForm(true)}>
+            <Plus className="h-4 w-4" /> Add topic
+          </Button>
+        }
+      />
 
       {error && (
-        <div className="mb-6 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-700 dark:text-red-400">
-          {error} <button onClick={fetchTopics} className="ml-3 underline text-xs">Retry</button>
+        <div className="mb-6 flex items-center justify-between rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+          <span>{error}</span>
+          <Button variant="link" size="sm" className="h-auto p-0 text-xs text-destructive" onClick={fetchTopics}>Retry</Button>
         </div>
       )}
 
       {loading ? (
-        <div className="space-y-3" />
-      ) : topics.length === 0 ? (
-        <div className="rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-12 text-center">
-          <Sparkles className="mx-auto mb-4 h-10 w-10 text-brand-600" />
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Discover what to create</h3>
-          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 max-w-sm mx-auto">
-            Add a creator niche and get research briefs with angles, hooks, and source evidence.
-          </p>
-          <button onClick={() => setShowForm(true)}
-            className="mt-5 inline-flex items-center gap-2 rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-brand-700 min-h-[44px]">
-            <Plus className="h-4 w-4" /> Add your first topic
-          </button>
+        <div className="space-y-3">
+          {[1, 2].map((i) => (<Card key={i} className="h-28 animate-pulse" />))}
         </div>
+      ) : topics.length === 0 ? (
+        <EmptyState
+          icon={Radio}
+          title="Discover what to create"
+          description="Add a creator niche and get research briefs with angles, hooks, and source evidence."
+          actionLabel="Add your first topic"
+          onAction={() => setShowForm(true)}
+        />
       ) : (
         <div className="space-y-4">
           {topics.map((topic) => {
@@ -453,155 +329,162 @@ export default function TopicsPage() {
             const isRawExpanded = expandedRaw[topic.id];
 
             return (
-              <section key={topic.id} className="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
+              <Card key={topic.id} className="overflow-hidden p-0">
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                        <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{topic.name}</h3>
-                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusInfo.color}`}>{statusInfo.label}</span>
-                        <span className="rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-[10px] text-gray-600 dark:text-gray-400 capitalize">{topic.frequency}</span>
+                      <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                        <h3 className="text-sm font-semibold text-foreground">{topic.name}</h3>
+                        <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", statusInfo.color)}>{statusInfo.label}</span>
+                        <Badge variant="secondary" className="capitalize text-[10px]">{topic.frequency}</Badge>
                       </div>
-                      <div className="flex flex-wrap gap-1 mb-1">
+                      <div className="mb-1 flex flex-wrap gap-1">
                         {(topic.keywords || []).map((kw) => (
-                          <span key={kw} className="rounded bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 text-[10px] text-gray-600 dark:text-gray-400">{kw}</span>
+                          <span key={kw} className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{kw}</span>
                         ))}
                       </div>
-                      <div className="text-[10px] text-gray-400 dark:text-gray-500 space-y-0.5">
+                      <div className="space-y-0.5 text-[10px] text-muted-foreground">
                         {topic.audience && <p>Audience: {topic.audience}</p>}
                         {topic.last_run_at && <p>Last searched: {new Date(topic.last_run_at).toLocaleString()}</p>}
-                        {latestRun?.error_message && <p className="text-red-500">Last run failed: {latestRun.error_message}</p>}
+                        {latestRun?.error_message && <p className="text-destructive">Last run failed: {latestRun.error_message}</p>}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
-                      <button onClick={() => runSearchNow(topic)} disabled={isRunning}
-                        className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/20 disabled:opacity-50 min-h-[32px]">
+                    <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-1">
+                      <Button variant="ghost" size="sm" className="h-8 text-primary" onClick={() => runSearchNow(topic)} disabled={isRunning}>
                         {isRunning ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                        <span>{isRunning ? "Searching" : "Search now"}</span>
-                      </button>
-                      <button onClick={() => runSearchNow(topic, true)} disabled={isRunning}
-                        className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 disabled:opacity-50 min-h-[32px]">
-                        <Sparkles className="h-4 w-4" />
-                        <span>Deep run</span>
-                      </button>
-                      <button onClick={() => toggleActive(topic)}
-                        className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 min-w-[32px] min-h-[32px]"
-                        title={topic.active ? "Pause" : "Resume"}>
-                        {topic.active ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                      </button>
-                      <button onClick={() => deleteTopic(topic.id, topic.name)}
-                        className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 min-w-[32px] min-h-[32px]" title="Delete">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                        {isRunning ? "Searching" : "Search now"}
+                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="ghost" size="sm" className="h-8 text-purple-600 dark:text-purple-400" onClick={() => runSearchNow(topic, true)} disabled={isRunning}>
+                            <Sparkles className="h-4 w-4" /> Deep run
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>A more thorough research pass</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toggleActive(topic)} aria-label={topic.active ? "Pause" : "Resume"}>
+                            {topic.active ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{topic.active ? "Pause scheduled runs" : "Resume scheduled runs"}</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => setPendingDelete({ id: topic.id, name: topic.name })} aria-label="Delete topic">
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Delete topic</TooltipContent>
+                      </Tooltip>
                     </div>
                   </div>
 
                   <button onClick={() => toggleExpanded(topic.id)}
-                    className="mt-3 w-full flex items-center justify-between rounded-lg bg-gray-50 dark:bg-gray-900 px-3 py-2 text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
-                    <span>{isExpanded ? "Hide research brief" : isRunning ? "Show research brief (searching...)" : "Show research brief"}</span>
+                    className="mt-3 flex w-full items-center justify-between rounded-lg bg-muted/60 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted">
+                    <span>{isExpanded ? "Hide research brief" : isRunning ? "Show research brief (searching…)" : "Show research brief"}</span>
                     {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                   </button>
                 </div>
 
                 {isExpanded && (
-                  <div className="border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 px-4 py-3 space-y-3">
+                  <div className="space-y-3 border-t bg-muted/30 px-4 py-3">
                     {isRunning && (
                       <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
-                        <LoaderCircle className="h-3.5 w-3.5 animate-spin flex-shrink-0" />
+                        <LoaderCircle className="h-3.5 w-3.5 flex-shrink-0 animate-spin" />
                         Searching sources and building a creator brief. Results will update after the worker finishes.
                       </div>
                     )}
 
                     {topicBrief ? (
-                      <div className="rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
-                        <div className="flex items-center gap-2 mb-2">
-                          <Sparkles className="h-4 w-4 text-brand-600" />
-                          <h4 className="text-sm font-semibold text-gray-900 dark:text-white">{topicBrief.headline}</h4>
+                      <Card className="p-3">
+                        <div className="mb-2 flex items-center gap-2">
+                          <Sparkles className="h-4 w-4 text-primary" />
+                          <h4 className="text-sm font-semibold text-foreground">{topicBrief.headline}</h4>
                         </div>
-                        {topicBrief.what_changed && <p className="text-xs text-gray-600 dark:text-gray-300 mb-3">{topicBrief.what_changed}</p>}
+                        {topicBrief.what_changed && <p className="mb-3 text-xs text-muted-foreground">{topicBrief.what_changed}</p>}
                         {topicBrief.audience_pains?.length > 0 && (
                           <div className="mb-3">
-                            <p className="text-[10px] uppercase text-gray-400 mb-1">Why it matters</p>
+                            <p className="mb-1 text-[10px] uppercase text-muted-foreground">Why it matters</p>
                             <div className="flex flex-wrap gap-1">
                               {topicBrief.audience_pains.map((pain) => (
-                                <span key={pain} className="rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-1 text-[10px] text-gray-600 dark:text-gray-300">{pain}</span>
+                                <span key={pain} className="rounded-full bg-muted px-2 py-1 text-[10px] text-muted-foreground">{pain}</span>
                               ))}
                             </div>
                           </div>
                         )}
                         <div className="space-y-2">
                           {(topicBrief.content_angles || []).slice(0, 5).map((angle, index) => (
-                            <div key={`${angle.title}-${index}`} className="rounded-lg border dark:border-gray-700 p-2.5">
-                              <p className="text-xs font-medium text-gray-900 dark:text-white">{angle.title}</p>
-                              <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">{angle.angle}</p>
-                              {angle.why && <p className="mt-1 text-[10px] text-gray-400 dark:text-gray-500">{angle.why}</p>}
+                            <div key={`${angle.title}-${index}`} className="rounded-lg border p-2.5">
+                              <p className="text-xs font-medium text-foreground">{angle.title}</p>
+                              <p className="mt-1 text-[11px] text-muted-foreground">{angle.angle}</p>
+                              {angle.why && <p className="mt-1 text-[10px] text-muted-foreground/80">{angle.why}</p>}
                               <div className="mt-2 flex flex-wrap gap-2">
-                                <button onClick={() => saveClusterIdea(topic, { id: topicBrief.id, run_id: topicBrief.run_id, summary: topicBrief.what_changed, title: angle.title }, angle)}
-                                  className="inline-flex items-center gap-1 rounded bg-brand-100 dark:bg-brand-900/30 px-2 py-1 text-[10px] font-medium text-brand-700 dark:text-brand-300 hover:bg-brand-200 dark:hover:bg-brand-800">
+                                <Button variant="secondary" size="sm" className="h-7 gap-1 text-[10px]"
+                                  onClick={() => saveClusterIdea(topic, { id: topicBrief.id, run_id: topicBrief.run_id, summary: topicBrief.what_changed, title: angle.title }, angle)}>
                                   <Lightbulb className="h-3 w-3" /> Save idea
-                                </button>
-                                <button onClick={() => createScriptOutline(topic, angle)}
-                                  className="inline-flex items-center gap-1 rounded bg-purple-100 dark:bg-purple-900/30 px-2 py-1 text-[10px] font-medium text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800">
+                                </Button>
+                                <Button variant="secondary" size="sm" className="h-7 gap-1 text-[10px]" onClick={() => createScriptOutline(topic, angle)}>
                                   <FileText className="h-3 w-3" /> Script outline
-                                </button>
+                                </Button>
                               </div>
                             </div>
                           ))}
                         </div>
                         {topicBrief.scripts_or_hooks?.length > 0 && (
                           <div className="mt-3">
-                            <p className="text-[10px] uppercase text-gray-400 mb-1">Hooks to try</p>
+                            <p className="mb-1 text-[10px] uppercase text-muted-foreground">Hooks to try</p>
                             <div className="space-y-1">
                               {topicBrief.scripts_or_hooks.map((hook) => (
-                                <p key={hook} className="text-[11px] text-gray-600 dark:text-gray-300">"{hook}"</p>
+                                <p key={hook} className="text-[11px] text-muted-foreground">"{hook}"</p>
                               ))}
                             </div>
                           </div>
                         )}
-                      </div>
+                      </Card>
                     ) : (
-                      <div className="rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 p-4 text-center text-xs text-gray-400 dark:text-gray-500">
+                      <Card className="p-4 text-center text-xs text-muted-foreground">
                         {isRunning ? "Brief is being generated." : "No creator brief yet. Click Search now to run research."}
-                      </div>
+                      </Card>
                     )}
 
                     {topicClusters.length > 0 && (
                       <div>
-                        <p className="mb-2 text-[10px] uppercase text-gray-400">Clusters</p>
+                        <p className="mb-2 text-[10px] uppercase text-muted-foreground">Clusters</p>
                         <div className="space-y-2">
                           {topicClusters.slice(0, 8).map((cluster) => {
                             const sourceUrl = citationUrl(firstCitation(cluster));
                             return (
-                              <div key={cluster.id} className="rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
+                              <Card key={cluster.id} className="p-3">
                                 <div className="flex items-start justify-between gap-2">
                                   <div>
-                                    <p className="text-xs font-medium text-gray-900 dark:text-white">{cluster.title}</p>
-                                    {cluster.summary && <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">{cluster.summary}</p>}
+                                    <p className="text-xs font-medium text-foreground">{cluster.title}</p>
+                                    {cluster.summary && <p className="mt-1 text-[11px] text-muted-foreground">{cluster.summary}</p>}
                                     <div className="mt-2 flex flex-wrap gap-1">
                                       {(cluster.sources || []).map((source) => (
-                                        <span key={source} className="rounded bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 text-[10px] text-gray-500 dark:text-gray-300">{source}</span>
+                                        <span key={source} className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{source}</span>
                                       ))}
                                     </div>
                                   </div>
-                                  <span className="text-[10px] text-gray-400">{cluster.score ? Number(cluster.score).toFixed(2) : ""}</span>
+                                  <span className="text-[10px] text-muted-foreground">{cluster.score ? Number(cluster.score).toFixed(2) : ""}</span>
                                 </div>
                                 <div className="mt-2 flex flex-wrap gap-2">
-                                  <button onClick={() => saveClusterIdea(topic, cluster)}
-                                    className="inline-flex items-center gap-1 rounded bg-brand-100 dark:bg-brand-900/30 px-2 py-1 text-[10px] font-medium text-brand-700 dark:text-brand-300">
+                                  <Button variant="secondary" size="sm" className="h-7 gap-1 text-[10px]" onClick={() => saveClusterIdea(topic, cluster)}>
                                     <Lightbulb className="h-3 w-3" /> Save idea
-                                  </button>
+                                  </Button>
                                   {sourceUrl && (
-                                    <a href={sourceUrl} target="_blank" rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
-                                      <ExternalLink className="h-3 w-3" /> Open sources
-                                    </a>
+                                    <Button asChild variant="ghost" size="sm" className="h-7 gap-1 text-[10px]">
+                                      <a href={sourceUrl} target="_blank" rel="noopener noreferrer">
+                                        <ExternalLink className="h-3 w-3" /> Open sources
+                                      </a>
+                                    </Button>
                                   )}
-                                  <button onClick={() => markClusterIrrelevant(cluster)}
-                                    className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700">
+                                  <Button variant="ghost" size="sm" className="h-7 gap-1 text-[10px] text-muted-foreground" onClick={() => markClusterIrrelevant(cluster)}>
                                     <X className="h-3 w-3" /> Mark irrelevant
-                                  </button>
+                                  </Button>
                                 </div>
-                              </div>
+                              </Card>
                             );
                           })}
                         </div>
@@ -610,10 +493,10 @@ export default function TopicsPage() {
 
                     {runs[topic.id]?.length > 0 && (
                       <div>
-                        <p className="mb-2 text-[10px] uppercase text-gray-400">Run history</p>
+                        <p className="mb-2 text-[10px] uppercase text-muted-foreground">Run history</p>
                         <div className="flex flex-wrap gap-1">
                           {runs[topic.id].slice(0, 5).map((run) => (
-                            <span key={run.id} className="rounded-full bg-white dark:bg-gray-800 border dark:border-gray-700 px-2 py-1 text-[10px] text-gray-500 dark:text-gray-300">
+                            <span key={run.id} className="rounded-full border bg-card px-2 py-1 text-[10px] text-muted-foreground">
                               {run.status} · {run.total_new_hits || 0} new · {new Date(run.created_at).toLocaleDateString()}
                             </span>
                           ))}
@@ -622,50 +505,114 @@ export default function TopicsPage() {
                     )}
 
                     <button onClick={() => toggleRaw(topic.id)}
-                      className="w-full flex items-center justify-between rounded-lg bg-white dark:bg-gray-800 px-3 py-2 text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700">
+                      className="flex w-full items-center justify-between rounded-lg bg-card px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent">
                       <span>{isRawExpanded ? "Hide raw results" : `Show raw results (${topicHits.length || latestRun?.total_candidates || 0})`}</span>
                       {isRawExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                     </button>
 
                     {isRawExpanded && (
-                      <div className="space-y-2 max-h-[420px] overflow-y-auto">
+                      <div className="max-h-[420px] space-y-2 overflow-y-auto">
                         {loadingHits[topic.id] ? (
-                          <p className="py-4 text-center text-xs text-gray-400">Loading results...</p>
+                          <p className="py-4 text-center text-xs text-muted-foreground">Loading results…</p>
                         ) : topicHits.length === 0 ? (
-                          <p className="py-4 text-center text-xs text-gray-400">{isRunning ? "Search in progress..." : "No raw results yet."}</p>
+                          <p className="py-4 text-center text-xs text-muted-foreground">{isRunning ? "Search in progress…" : "No raw results yet."}</p>
                         ) : topicHits.map((hit) => (
-                          <div key={hit.id} className="rounded-lg border dark:border-gray-600 bg-white dark:bg-gray-800 p-2.5 text-xs">
-                            <div className="flex items-start justify-between gap-2 mb-1">
-                              <span className="font-medium text-gray-900 dark:text-white flex-1">{hit.title || "Untitled"}</span>
-                              <span className="text-[10px] uppercase text-gray-400 dark:text-gray-500 flex-shrink-0">{hit.platform}</span>
+                          <Card key={hit.id} className="p-2.5 text-xs">
+                            <div className="mb-1 flex items-start justify-between gap-2">
+                              <span className="flex-1 font-medium text-foreground">{hit.title || "Untitled"}</span>
+                              <span className="flex-shrink-0 text-[10px] uppercase text-muted-foreground">{hit.platform}</span>
                             </div>
-                            {hit.snippet && <p className="text-gray-500 dark:text-gray-400 line-clamp-2 mb-2">{hit.snippet}</p>}
+                            {hit.snippet && <p className="mb-2 line-clamp-2 text-muted-foreground">{hit.snippet}</p>}
                             <div className="flex items-center justify-between gap-2">
-                              <span className="text-gray-400 dark:text-gray-500">
+                              <span className="text-muted-foreground">
                                 {hit.sighting_count > 1 ? `${hit.sighting_count} sightings` : "New sighting"}
                               </span>
                               <div className="flex items-center gap-2">
                                 <a href={hit.source_url} target="_blank" rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-brand-600 dark:text-brand-400 hover:underline text-[10px]">
+                                  className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
                                   <ExternalLink className="h-3 w-3" /> View source
                                 </a>
-                                <button onClick={() => captureAsIdea(hit)}
-                                  className="inline-flex items-center gap-1 rounded bg-brand-100 dark:bg-brand-900/30 px-2 py-0.5 text-[10px] font-medium text-brand-700 dark:text-brand-300 hover:bg-brand-200 dark:hover:bg-brand-800 min-h-[28px]">
+                                <Button variant="secondary" size="sm" className="h-7 gap-1 text-[10px]" onClick={() => captureAsIdea(hit)}>
                                   <Lightbulb className="h-3 w-3" /> Idea
-                                </button>
+                                </Button>
                               </div>
                             </div>
-                          </div>
+                          </Card>
                         ))}
                       </div>
                     )}
                   </div>
                 )}
-              </section>
+              </Card>
             );
           })}
         </div>
       )}
+
+      {/* Create topic — right-side sheet */}
+      <Sheet open={showForm} onOpenChange={setShowForm}>
+        <SheetContent side="right" className="p-0">
+          <SheetHeader>
+            <SheetTitle>New listening topic</SheetTitle>
+            <SheetDescription>Describe a creator niche. We'll research it and build a brief.</SheetDescription>
+          </SheetHeader>
+          <Separator />
+          <form onSubmit={createTopic} className="flex-1 space-y-4 overflow-y-auto p-6">
+            <div className="space-y-1.5">
+              <Label htmlFor="t-name">Topic name</Label>
+              <Input id="t-name" required value={form.name} onChange={(e) => updateForm("name", e.target.value)} placeholder="e.g. AI video creation" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="t-audience">Audience</Label>
+              <Input id="t-audience" value={form.audience} onChange={(e) => updateForm("audience", e.target.value)} placeholder="e.g. creators selling templates" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="t-format">Content format</Label>
+                <Input id="t-format" value={form.contentFormat} onChange={(e) => updateForm("contentFormat", e.target.value)} placeholder="short-form video" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="t-freq">Frequency</Label>
+                <Select value={form.frequency} onValueChange={(v) => updateForm("frequency", v)}>
+                  <SelectTrigger id="t-freq"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {FREQUENCIES.map((f) => (<SelectItem key={f} value={f}>{f === "daily" ? "Daily" : "Weekly"}</SelectItem>))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="t-keywords">Keywords</Label>
+              <Input id="t-keywords" required value={form.keywords} onChange={(e) => updateForm("keywords", e.target.value)} placeholder="e.g. AI UGC, product demos, video ads" />
+              <p className="text-[11px] text-muted-foreground">Comma-separated.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="t-comp">Competitors / tools</Label>
+              <Input id="t-comp" value={form.competitors} onChange={(e) => updateForm("competitors", e.target.value)} placeholder="e.g. Runway, HeyGen, Arcads" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="t-plat">Platform focus</Label>
+              <Input id="t-plat" value={form.platformFocus} onChange={(e) => updateForm("platformFocus", e.target.value)} placeholder="e.g. YouTube, Instagram, TikTok" />
+            </div>
+            <div className="flex gap-2 pt-2">
+              <Button type="submit" disabled={saving}>
+                {saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                {saving ? "Creating…" : "Create & search now"}
+              </Button>
+              <Button type="button" variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
+            </div>
+          </form>
+        </SheetContent>
+      </Sheet>
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        onOpenChange={(v) => !v && setPendingDelete(null)}
+        title={`Delete "${pendingDelete?.name}"?`}
+        description="This removes the topic. Existing ideas you've saved from it are kept."
+        confirmLabel="Delete"
+        onConfirm={() => { deleteTopic(pendingDelete.id, pendingDelete.name); setPendingDelete(null); }}
+      />
     </div>
   );
 }

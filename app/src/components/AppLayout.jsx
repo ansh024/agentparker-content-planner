@@ -8,6 +8,19 @@ import {
   Inbox, CalendarDays, Radio, Settings, LogOut,
   Menu, X, Plus, LayoutGrid, Keyboard, Download,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Tooltip, TooltipTrigger, TooltipContent,
+} from "@/components/ui/tooltip";
+import HelpButton from "@/components/common/HelpButton";
 
 const log = logger("AppLayout");
 
@@ -16,6 +29,13 @@ const navItems = [
   { to: "/board", icon: LayoutGrid, label: "Board" },
   { to: "/calendar", icon: CalendarDays, label: "Calendar" },
   { to: "/topics", icon: Radio, label: "Listening" },
+];
+
+const SHORTCUTS = [
+  ["N", "New idea"],
+  ["1–5", "Filter by status"],
+  ["?", "Toggle shortcuts"],
+  ["Esc", "Close / deselect"],
 ];
 
 export default function AppLayout() {
@@ -31,7 +51,6 @@ export default function AppLayout() {
   const [quickNote, setQuickNote] = useState("");
   const [quickSaving, setQuickSaving] = useState(false);
   const [inboxCount, setInboxCount] = useState(null);
-  const [boardCounts, setBoardCounts] = useState({});
 
   // Fetch new idea count for badge
   useEffect(() => {
@@ -45,7 +64,6 @@ export default function AppLayout() {
       setInboxCount(count);
     };
     fetchCounts();
-    // Subscribe to changes
     const channel = supabase
       .channel("idea-counts")
       .on("postgres_changes", { event: "*", schema: "public", table: "ideas", filter: `user_id=eq.${user.id}` }, fetchCounts)
@@ -97,83 +115,114 @@ export default function AppLayout() {
       setShowInstallHelp(true);
       return;
     }
-
     installPrompt.prompt();
     const choice = await installPrompt.userChoice;
     setInstallPrompt(null);
     if (choice.outcome === "accepted") showToast("ContentPlanner installed.", "success");
   };
 
+  const sidebarLink = ({ isActive }) =>
+    cn(
+      "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+      isActive
+        ? "bg-primary/10 text-primary"
+        : "text-muted-foreground hover:bg-accent hover:text-foreground"
+    );
+
   return (
-    <div className="flex min-h-screen relative">
-      {sidebarOpen && <div className="fixed inset-0 z-40 bg-black/30 lg:hidden" onClick={() => setSidebarOpen(false)} />}
+    <div className="relative flex min-h-screen">
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
 
       {/* Sidebar */}
-      <aside className={`fixed lg:sticky top-0 z-50 h-screen w-64 border-r bg-white dark:bg-gray-900 dark:border-gray-800 flex flex-col transition-transform lg:translate-x-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
+      <aside
+        className={cn(
+          "fixed top-0 z-50 flex h-screen w-64 flex-col border-r bg-card transition-transform lg:sticky lg:translate-x-0",
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        )}
+      >
         <div className="flex items-center justify-between px-4 py-5">
           <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-600">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary">
               <svg width="14" height="14" viewBox="0 0 32 32" fill="none"><path d="M10 22V10l12 6-12 6z" fill="white" /></svg>
             </div>
-            <span className="text-sm font-bold text-gray-900 dark:text-white">ContentPlanner</span>
+            <span className="text-sm font-bold text-foreground">ContentPlanner</span>
           </div>
-          <button onClick={() => setSidebarOpen(false)} className="lg:hidden p-1.5 text-gray-400"><X className="h-5 w-5" /></button>
+          <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSidebarOpen(false)}>
+            <X className="h-5 w-5" />
+          </Button>
         </div>
 
-        <nav className="flex-1 px-2 space-y-0.5">
+        <nav className="flex-1 space-y-0.5 px-2">
           {navItems.map(({ to, icon: Icon, label }) => (
-            <NavLink key={to} to={to}
-              className={({ isActive }) => `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${isActive ? "bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-300" : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white"}`}>
+            <NavLink key={to} to={to} className={sidebarLink}>
               <Icon className="h-4 w-4" />
               <span className="flex-1">{label}</span>
               {to === "/inbox" && inboxCount > 0 && (
-                <span className="rounded-full bg-brand-100 dark:bg-brand-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700 dark:text-brand-300 leading-none">{inboxCount}</span>
+                <Badge className="h-5 px-1.5 text-[10px] leading-none">{inboxCount}</Badge>
               )}
             </NavLink>
           ))}
         </nav>
 
-        <div className="border-t dark:border-gray-800 p-2">
-          <NavLink to="/settings" className={({ isActive }) => `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium ${isActive ? "bg-brand-50 dark:bg-brand-900/20 text-brand-700" : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"}`}>
+        <div className="space-y-0.5 border-t p-2">
+          <NavLink to="/settings" className={sidebarLink}>
             <Settings className="h-4 w-4" /> Settings
           </NavLink>
-          <button onClick={() => setShowShortcuts(true)} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">
+          <button onClick={() => setShowShortcuts(true)} className={cn(sidebarLink({ isActive: false }), "w-full")}>
             <Keyboard className="h-4 w-4" /> Shortcuts
           </button>
-          <button onClick={installApp} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">
+          <button onClick={installApp} className={cn(sidebarLink({ isActive: false }), "w-full")}>
             <Download className="h-4 w-4" /> Install app
           </button>
-          <button onClick={signOut} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">
+          <button onClick={signOut} className={cn(sidebarLink({ isActive: false }), "w-full")}>
             <LogOut className="h-4 w-4" /> Sign out
           </button>
         </div>
       </aside>
 
       {/* Main */}
-      <main className="flex-1 overflow-y-auto bg-gray-50 dark:bg-gray-950 min-h-screen pb-16 lg:pb-0">
-        <div className="sticky top-0 z-30 flex items-center justify-between bg-white dark:bg-gray-900 border-b dark:border-gray-800 px-4 py-3 lg:hidden">
-          <button onClick={() => setSidebarOpen(true)} className="p-2 -ml-2 text-gray-600 dark:text-gray-400 min-w-[44px] min-h-[44px] flex items-center"><Menu className="h-6 w-6" /></button>
-          <span className="text-sm font-bold text-gray-900 dark:text-white">ContentPlanner</span>
+      <main className="min-h-screen flex-1 overflow-y-auto bg-background pb-16 lg:pb-0">
+        <div className="sticky top-0 z-30 flex items-center justify-between border-b bg-card px-2 py-2 lg:hidden">
+          <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
+            <Menu className="h-6 w-6" />
+          </Button>
+          <span className="text-sm font-bold text-foreground">ContentPlanner</span>
           <div className="flex items-center">
-            <button onClick={installApp} className="p-2 text-gray-600 dark:text-gray-400 min-w-[44px] min-h-[44px] flex items-center" aria-label="Install app">
-              <Download className="h-5 w-5" />
-            </button>
-            <button onClick={() => setShowQuickCapture(true)} className="p-2 -mr-2 text-brand-600 min-w-[44px] min-h-[44px] flex items-center" aria-label="Quick capture">
-              <Plus className="h-6 w-6" />
-            </button>
+            <HelpButton />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" onClick={installApp} aria-label="Install app">
+                  <Download className="h-5 w-5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Install app</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="text-primary" onClick={() => setShowQuickCapture(true)} aria-label="Quick capture">
+                  <Plus className="h-6 w-6" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Quick capture</TooltipContent>
+            </Tooltip>
           </div>
         </div>
         <Outlet />
       </main>
 
       {/* Mobile bottom nav */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-gray-900 border-t dark:border-gray-800 lg:hidden">
+      <nav className="fixed bottom-0 left-0 right-0 z-40 border-t bg-card lg:hidden">
         <div className="flex items-center justify-around">
           {navItems.slice(0, 4).map(({ to, icon: Icon, label }) => {
             const isActive = location.pathname.startsWith(to);
             return (
-              <NavLink key={to} to={to} className={`flex flex-col items-center py-2 px-3 text-xs font-medium ${isActive ? "text-brand-600" : "text-gray-500 dark:text-gray-400"}`}>
-                <Icon className="h-5 w-5 mb-0.5" />{label}
+              <NavLink key={to} to={to} className={cn("flex flex-col items-center px-3 py-2 text-xs font-medium", isActive ? "text-primary" : "text-muted-foreground")}>
+                <Icon className="mb-0.5 h-5 w-5" />{label}
               </NavLink>
             );
           })}
@@ -181,69 +230,67 @@ export default function AppLayout() {
       </nav>
 
       {/* Quick capture modal */}
-      {showQuickCapture && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/30" onClick={() => setShowQuickCapture(false)} />
-          <div className="relative bg-white dark:bg-gray-900 rounded-2xl w-full max-w-md p-5 shadow-xl">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-semibold text-gray-900 dark:text-white">Quick Capture</h2>
-              <button onClick={() => setShowQuickCapture(false)} className="p-1 text-gray-400"><X className="h-5 w-5" /></button>
+      <Dialog open={showQuickCapture} onOpenChange={setShowQuickCapture}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Quick capture</DialogTitle>
+            <DialogDescription>Save a link or note straight to your Inbox.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={quickSave} className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="qc-url">URL</Label>
+              <Input id="qc-url" type="url" required autoFocus value={quickUrl} onChange={(e) => setQuickUrl(e.target.value)} placeholder="Paste a URL…" />
             </div>
-            <form onSubmit={quickSave} className="space-y-3">
-              <input type="url" required autoFocus value={quickUrl} onChange={(e) => setQuickUrl(e.target.value)} placeholder="Paste a URL..." className="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white px-3 py-2.5 text-sm" />
-              <textarea value={quickNote} onChange={(e) => setQuickNote(e.target.value)} placeholder="Add a quick note..." rows={2} className="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white px-3 py-2 text-sm" />
-              <button type="submit" disabled={quickSaving || !quickUrl.trim()} className="w-full rounded-lg bg-brand-600 py-2.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50">{quickSaving ? "Saving..." : "Save idea"}</button>
-            </form>
-          </div>
-        </div>
-      )}
+            <div className="space-y-1.5">
+              <Label htmlFor="qc-note">Note <span className="text-muted-foreground">(optional)</span></Label>
+              <Textarea id="qc-note" value={quickNote} onChange={(e) => setQuickNote(e.target.value)} placeholder="Add a quick note…" rows={2} />
+            </div>
+            <Button type="submit" disabled={quickSaving || !quickUrl.trim()} className="w-full">
+              {quickSaving ? "Saving…" : "Save idea"}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Install help modal */}
-      {showInstallHelp && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/30" onClick={() => setShowInstallHelp(false)} />
-          <div className="relative bg-white dark:bg-gray-900 rounded-2xl w-full max-w-md p-5 shadow-xl">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-semibold text-gray-900 dark:text-white">Install ContentPlanner</h2>
-              <button onClick={() => setShowInstallHelp(false)} className="p-1 text-gray-400"><X className="h-5 w-5" /></button>
+      <Dialog open={showInstallHelp} onOpenChange={setShowInstallHelp}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Install ContentPlanner</DialogTitle>
+            <DialogDescription>Add it to your home screen for one-tap capture.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 text-sm text-muted-foreground">
+            <div>
+              <p className="font-medium text-foreground">Android Chrome</p>
+              <p className="mt-1">Open the browser menu, then tap Add to Home screen or Install app.</p>
             </div>
-            <div className="space-y-4 text-sm text-gray-600 dark:text-gray-400">
-              <div>
-                <p className="font-medium text-gray-900 dark:text-white">Android Chrome</p>
-                <p className="mt-1">Open the browser menu, then tap Add to Home screen or Install app.</p>
-              </div>
-              <div>
-                <p className="font-medium text-gray-900 dark:text-white">iPhone Safari</p>
-                <p className="mt-1">Tap Share, then Add to Home Screen.</p>
-              </div>
+            <div>
+              <p className="font-medium text-foreground">iPhone Safari</p>
+              <p className="mt-1">Tap Share, then Add to Home Screen.</p>
             </div>
-            <button onClick={() => setShowInstallHelp(false)} className="mt-5 w-full rounded-lg bg-brand-600 py-2.5 text-sm font-medium text-white hover:bg-brand-700">
-              Got it
-            </button>
           </div>
-        </div>
-      )}
+          <DialogFooter>
+            <Button onClick={() => setShowInstallHelp(false)} className="w-full">Got it</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Shortcuts modal */}
-      {showShortcuts && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/30" onClick={() => setShowShortcuts(false)} />
-          <div className="relative bg-white dark:bg-gray-900 rounded-2xl w-full max-w-sm p-5 shadow-xl">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-semibold text-gray-900 dark:text-white">Keyboard Shortcuts</h2>
-              <button onClick={() => setShowShortcuts(false)} className="p-1 text-gray-400"><X className="h-5 w-5" /></button>
-            </div>
-            <div className="space-y-2 text-sm">
-              {[["N", "New idea"], ["1–5", "Filter by status"], ["?", "Toggle shortcuts"], ["Esc", "Close / deselect"]].map(([key, desc]) => (
-                <div key={key} className="flex items-center justify-between">
-                  <span className="text-gray-600 dark:text-gray-400">{desc}</span>
-                  <kbd className="rounded-md bg-gray-100 dark:bg-gray-800 px-2 py-1 text-xs font-mono text-gray-600 dark:text-gray-400 border dark:border-gray-700">{key}</kbd>
-                </div>
-              ))}
-            </div>
+      <Dialog open={showShortcuts} onOpenChange={setShowShortcuts}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Keyboard shortcuts</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 text-sm">
+            {SHORTCUTS.map(([key, desc]) => (
+              <div key={key} className="flex items-center justify-between">
+                <span className="text-muted-foreground">{desc}</span>
+                <kbd className="rounded-md border bg-muted px-2 py-1 font-mono text-xs text-muted-foreground">{key}</kbd>
+              </div>
+            ))}
           </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

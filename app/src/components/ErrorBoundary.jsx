@@ -23,13 +23,13 @@ export default class ErrorBoundary extends Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="flex min-h-[400px] items-center justify-center bg-gray-50 px-4">
+        <div className="flex min-h-[400px] items-center justify-center bg-background px-4">
           <div className="max-w-sm text-center">
             <div className="mb-4 text-4xl">😬</div>
-            <h2 className="text-lg font-semibold text-gray-900">
+            <h2 className="text-lg font-semibold text-foreground">
               Something went wrong
             </h2>
-            <p className="mt-2 text-sm text-gray-500">
+            <p className="mt-2 text-sm text-muted-foreground">
               An unexpected error occurred. Try refreshing the page. If the
               problem persists, we're probably already fixing it.
             </p>
@@ -38,16 +38,16 @@ export default class ErrorBoundary extends Component {
                 this.setState({ hasError: false, error: null });
                 window.location.reload();
               }}
-              className="mt-4 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+              className="mt-4 inline-flex h-10 items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               Refresh page
             </button>
             {this.props.dev && this.state.error && (
               <details className="mt-4 text-left">
-                <summary className="cursor-pointer text-xs text-gray-400">
+                <summary className="cursor-pointer text-xs text-muted-foreground">
                   Error details
                 </summary>
-                <pre className="mt-2 max-h-48 overflow-auto rounded bg-gray-100 p-3 text-xs text-red-600">
+                <pre className="mt-2 max-h-48 overflow-auto rounded bg-muted p-3 text-xs text-destructive">
                   {this.state.error.message}
                   {"\n\n"}
                   {this.state.error.stack}
