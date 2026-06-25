@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
-import { formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow, differenceInHours, differenceInMinutes } from "date-fns";
 import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "../contexts/ToastContext";
 import { supabase } from "../lib/supabase";
@@ -8,17 +8,15 @@ import { logger } from "../lib/logger";
 import { usePullToRefresh } from "../hooks/usePullToRefresh";
 import {
   ArrowLeft, LoaderCircle, MoreVertical, Pause, Play, Search, Sparkles,
-  Trash2, Radio, FileText, Layers, ListFilter, History,
+  Trash2, Radio, Lightbulb, Layers, TrendingUp, Clock, History,
 } from "lucide-react";
-import { getLatestRun, getTopicStatus, mergeTopicHits } from "../lib/topics";
+import { getLatestRun } from "../lib/topics";
 import {
-  queueResearchRun, captureAsIdea, saveClusterIdea, createScriptOutline,
-  markClusterIrrelevant,
+  queueResearchRun, saveClusterIdea, createScriptOutline,
 } from "../lib/listening";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
@@ -29,36 +27,102 @@ import HelpButton from "@/components/common/HelpButton";
 import EmptyState from "@/components/common/EmptyState";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import TopicStatusBadge from "@/components/listening/TopicStatusBadge";
-import BriefView from "@/components/listening/BriefView";
-import ClusterCard from "@/components/listening/ClusterCard";
-import HitCard from "@/components/listening/HitCard";
+import BriefCard from "@/components/listening/BriefCard";
+import AngleCard from "@/components/listening/AngleCard";
+import AngleDrawer from "@/components/listening/AngleDrawer";
+import SignalRow from "@/components/listening/SignalRow";
 
 const log = logger("TopicDetailPage");
 
 function relativeTime(value) {
   if (!value) return "—";
-  try {
-    return formatDistanceToNow(new Date(value), { addSuffix: true });
-  } catch {
-    return "—";
-  }
+  try { return formatDistanceToNow(new Date(value), { addSuffix: true }); } catch { return "—"; }
 }
 
-function StatTile({ label, value }) {
+function lastRunLabel(value) {
+  if (!value) return "—";
+  try {
+    const d = new Date(value);
+    const h = differenceInHours(new Date(), d);
+    if (h < 1) {
+      const m = differenceInMinutes(new Date(), d);
+      return `${m}m`;
+    }
+    return `${h}h`;
+  } catch { return "—"; }
+}
+
+// ---- Stat card ----
+function StatCard({ icon: Icon, label, value, sub, accent }) {
   return (
-    <Card className="p-3 sm:p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-1 truncate text-base font-semibold text-foreground sm:text-lg">{value}</p>
-    </Card>
+    <div className={cn(
+      "flex items-center gap-3 rounded-xl border px-4 py-3 shadow-sm",
+      accent ? "border-primary/20 bg-primary/5" : "border-border bg-card"
+    )}>
+      <span className={cn(
+        "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+        accent ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
+      )}>
+        <Icon className="h-4 w-4" />
+      </span>
+      <div className="min-w-0">
+        <p className="text-[9.5px] font-semibold uppercase tracking-widest text-muted-foreground leading-tight">{label}</p>
+        <div className="flex items-baseline gap-1.5 mt-0.5">
+          <span className="text-[19px] font-semibold leading-none text-foreground tabular-nums">{value}</span>
+          {sub && <span className="text-xs text-muted-foreground/70 truncate">{sub}</span>}
+        </div>
+      </div>
+    </div>
   );
 }
 
-const RUN_STATUS_COLOR = {
-  succeeded: "text-green-600 dark:text-green-400",
-  failed: "text-destructive",
-  running: "text-amber-600 dark:text-amber-400",
-  queued: "text-amber-600 dark:text-amber-400",
-};
+// ---- History timeline ----
+function HistoryView({ runs }) {
+  if (!runs.length) {
+    return <EmptyState icon={History} title="No runs yet" description="Each research run is logged here with its results." />;
+  }
+
+  const RUN_COLOR = {
+    succeeded: "text-green-600 dark:text-green-400",
+    failed: "text-destructive",
+    running: "text-amber-600 dark:text-amber-400",
+    queued: "text-amber-600 dark:text-amber-400",
+  };
+
+  return (
+    <ol className="relative pl-6 space-y-0" style={{ borderLeft: "2px solid hsl(var(--border))", marginLeft: 10 }}>
+      {runs.map((run, i) => {
+        const isNew = i === 0 && (run.status === "succeeded" || run.status === "running");
+        return (
+          <li key={run.id} className="relative pb-5 last:pb-0">
+            {/* Timeline dot */}
+            <span
+              className={cn(
+                "absolute -left-[25px] top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full border-2 bg-background",
+                isNew ? "border-primary bg-primary shadow-[0_0_0_3px_hsl(var(--primary)/0.15)]" : "border-muted-foreground/40"
+              )}
+            />
+            <div className="flex flex-wrap items-center gap-2 ml-1">
+              <span className={cn("text-sm font-medium capitalize", RUN_COLOR[run.status] || "text-foreground")}>
+                {run.status}
+              </span>
+              {isNew && (
+                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">New</span>
+              )}
+              <span className="ml-auto text-xs text-muted-foreground">{relativeTime(run.created_at)}</span>
+            </div>
+            <div className="mt-1 ml-1 text-sm text-muted-foreground">
+              <span className="tabular-nums">{run.total_new_hits || 0} new</span>
+              {run.error_message && (
+                <p className="mt-0.5 text-xs text-destructive">{run.error_message}</p>
+              )}
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
 
 export default function TopicDetailPage() {
   const { id } = useParams();
@@ -70,29 +134,24 @@ export default function TopicDetailPage() {
   const [runs, setRuns] = useState([]);
   const [brief, setBrief] = useState(null);
   const [clusters, setClusters] = useState([]);
-  const [hits, setHits] = useState([]);
-  const [hitsLoaded, setHitsLoaded] = useState(false);
-  const [loadingHits, setLoadingHits] = useState(false);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [runningSearch, setRunningSearch] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
-  const [tab, setTab] = useState("brief");
+  const [tab, setTab] = useState("angles");
+  const [activeIndex, setActiveIndex] = useState(null); // index into brief.content_angles
+  const [savedSet, setSavedSet] = useState(() => new Set());
 
   const fetchAll = useCallback(async () => {
     if (!user || !id) return;
-    const topicReq = supabase.from("listening_topics").select("*").eq("id", id).eq("user_id", user.id).maybeSingle();
-    const runsReq = supabase.from("listening_runs").select("*").eq("topic_id", id).order("created_at", { ascending: false }).limit(30);
-    const briefReq = supabase.from("listening_briefs").select("*").eq("topic_id", id).order("created_at", { ascending: false }).limit(1);
-    const clustersReq = supabase.from("listening_clusters").select("*").eq("topic_id", id).order("score", { ascending: false, nullsFirst: false }).limit(40);
+    const [topicRes, runsRes, briefRes, clustersRes] = await Promise.all([
+      supabase.from("listening_topics").select("*").eq("id", id).eq("user_id", user.id).maybeSingle(),
+      supabase.from("listening_runs").select("*").eq("topic_id", id).order("created_at", { ascending: false }).limit(30),
+      supabase.from("listening_briefs").select("*").eq("topic_id", id).order("created_at", { ascending: false }).limit(1),
+      supabase.from("listening_clusters").select("*").eq("topic_id", id).order("score", { ascending: false, nullsFirst: false }).limit(40),
+    ]);
 
-    const [topicRes, runsRes, briefRes, clustersRes] = await Promise.all([topicReq, runsReq, briefReq, clustersReq]);
-
-    if (topicRes.error || !topicRes.data) {
-      setNotFound(true);
-      setLoading(false);
-      return;
-    }
+    if (topicRes.error || !topicRes.data) { setNotFound(true); setLoading(false); return; }
     setTopic(topicRes.data);
     if (!runsRes.error) setRuns(runsRes.data || []);
     if (!briefRes.error) setBrief(briefRes.data?.[0] || null);
@@ -104,50 +163,50 @@ export default function TopicDetailPage() {
 
   const { containerRef, refreshing } = usePullToRefresh(fetchAll);
 
-  const loadHits = useCallback(async () => {
-    if (!id) return;
-    setLoadingHits(true);
-    const { data } = await supabase.from("listening_hits").select("*").eq("topic_id", id)
-      .order("last_seen_at", { ascending: false, nullsFirst: false })
-      .order("captured_at", { ascending: false }).limit(80);
-    setHits((prev) => mergeTopicHits(prev, data || []));
-    setHitsLoaded(true);
-    setLoadingHits(false);
-  }, [id]);
-
-  useEffect(() => {
-    if (tab === "raw" && !hitsLoaded) loadHits();
-  }, [tab, hitsLoaded, loadHits]);
-
   const latestRun = getLatestRun(runs);
   const isRunning = runningSearch || ["queued", "running"].includes(latestRun?.status);
 
   const stats = useMemo(() => {
     const weekAgo = Date.now() - 7 * 86400000;
     const newThisWeek = runs.reduce(
-      (sum, run) => (new Date(run.created_at).getTime() >= weekAgo ? sum + (run.total_new_hits || 0) : sum),
-      0,
+      (sum, run) => (new Date(run.created_at).getTime() >= weekAgo ? sum + (run.total_new_hits || 0) : sum), 0,
     );
     return { newThisWeek };
   }, [runs]);
 
+  // Angles derived from brief
+  const angles = brief?.content_angles || [];
+  const hooks = brief?.scripts_or_hooks || [];
+
+  // Format filter chips
+  const formats = useMemo(() => {
+    const fmts = angles.map((a) => a.format).filter(Boolean);
+    const unique = [...new Set(fmts.map((f) => (f.split("·")[1] || f).trim()))].filter(Boolean);
+    return unique;
+  }, [angles]);
+  const [formatFilter, setFormatFilter] = useState("All");
+
+  const visibleAngles = useMemo(() => {
+    if (formatFilter === "All") return angles;
+    return angles.filter((a) => {
+      const sub = (a.format?.split("·")[1] || a.format || "").trim();
+      return sub === formatFilter;
+    });
+  }, [angles, formatFilter]);
+
+  const activeAngle = activeIndex !== null ? angles[activeIndex] ?? null : null;
+
   const runSearchNow = async (deep = false) => {
     setRunningSearch(true);
-    log.info("Queuing research", { id, deep });
     try {
       const { ok, result } = await queueResearchRun({ supabase, topicId: id, deep });
-      if (!ok) {
-        showToast(result.error || "Research failed to queue.", "error");
-        return;
-      }
+      if (!ok) { showToast(result.error || "Research failed to queue.", "error"); return; }
       showToast(result.message || "Research run queued.", result.workerError ? "warning" : "success");
       await fetchAll();
     } catch (err) {
       log.error("Research run failed", { error: err });
       showToast(err.message || "Research failed. Try again.", "error");
-    } finally {
-      setRunningSearch(false);
-    }
+    } finally { setRunningSearch(false); }
   };
 
   const toggleActive = async () => {
@@ -162,31 +221,35 @@ export default function TopicDetailPage() {
     navigate("/topics");
   };
 
-  // Idea actions wired to the shared lib helpers
-  const onSaveAngle = (angle) =>
-    saveClusterIdea({
-      supabase, user, showToast, topic,
-      cluster: { id: brief.id, run_id: brief.run_id, summary: brief.what_changed, title: angle.title },
-      angle,
-    });
-  const onScriptOutline = (angle) => createScriptOutline({ supabase, user, showToast, topic, angle, brief });
-  const onSaveCluster = (cluster) => saveClusterIdea({ supabase, user, showToast, topic, cluster });
-  const onMarkIrrelevant = (cluster) =>
-    markClusterIrrelevant({
-      supabase, showToast, cluster,
-      onHidden: (c) => setClusters((prev) => prev.filter((x) => x.id !== c.id)),
-    });
-  const onSaveHit = (hit) => captureAsIdea({ supabase, user, showToast, hit });
+  const handleSaveAngle = (angle, idx) => {
+    // Build a synthetic cluster from angle data + mark as saved
+    const syntheticCluster = {
+      id: `angle-${idx}`,
+      run_id: brief?.run_id,
+      title: angle.title,
+      summary: angle.angle,
+    };
+    saveClusterIdea({ supabase, user, showToast, topic, cluster: syntheticCluster, angle });
+    setSavedSet((prev) => { const n = new Set(prev); n.add(idx); return n; });
+  };
+
+  const handleScriptOutline = (angle) => {
+    createScriptOutline({ supabase, user, showToast, topic, angle, brief });
+  };
+
+  const handleSaveCluster = (cluster) => {
+    saveClusterIdea({ supabase, user, showToast, topic, cluster });
+  };
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-4xl p-4 sm:p-6">
+      <div className="mx-auto max-w-4xl p-4 sm:p-6 space-y-4">
         <Skeleton className="h-5 w-24" />
-        <Skeleton className="mt-4 h-8 w-64" />
-        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-20" />)}
+        <Skeleton className="h-8 w-72" />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {[1,2,3,4].map((i) => <Skeleton key={i} className="h-16" />)}
         </div>
-        <Skeleton className="mt-6 h-64" />
+        <Skeleton className="h-64" />
       </div>
     );
   }
@@ -206,6 +269,9 @@ export default function TopicDetailPage() {
     );
   }
 
+  const lastRunAgo = lastRunLabel(topic.last_run_at);
+  const anglesCount = angles.length;
+
   return (
     <div ref={containerRef} className="mx-auto max-w-4xl p-4 sm:p-6" style={refreshing ? { opacity: 0.7 } : {}}>
       {refreshing && (
@@ -216,62 +282,79 @@ export default function TopicDetailPage() {
 
       <BackLink />
 
-      {/* Header */}
+      {/* ---- Header ---- */}
       <div className="mt-3 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="min-w-0 flex-1">
+          {/* Title row */}
+          <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="text-2xl font-bold tracking-tight text-foreground">{topic.name}</h1>
             <TopicStatusBadge topic={topic} isRunning={isRunning} latestRun={latestRun} />
             <Badge variant="secondary" className="capitalize">{topic.frequency}</Badge>
+            {topic.last_run_at && (
+              <span className="text-xs text-muted-foreground ml-auto hidden sm:block whitespace-nowrap">
+                Last ran {relativeTime(topic.last_run_at)}
+              </span>
+            )}
           </div>
           {topic.audience && (
-            <p className="mt-1.5 text-sm text-muted-foreground">Audience: {topic.audience}</p>
+            <p className="mt-1 text-sm text-muted-foreground">Audience: {topic.audience}</p>
           )}
         </div>
-        <HelpButton />
+
+        {/* Actions */}
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Button
+            size="sm"
+            className="hidden sm:inline-flex gap-1.5"
+            onClick={() => runSearchNow(false)}
+            disabled={isRunning}
+          >
+            {isRunning ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+            {isRunning ? "Searching…" : "Search now"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="hidden sm:inline-flex gap-1.5"
+            onClick={() => runSearchNow(true)}
+            disabled={isRunning}
+          >
+            <Sparkles className="h-3.5 w-3.5" /> Deep run
+          </Button>
+          <HelpButton />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" className="h-9 w-9" aria-label="More actions">
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem className="sm:hidden" onClick={() => runSearchNow(false)} disabled={isRunning}>
+                <Search className="h-4 w-4" /> Search now
+              </DropdownMenuItem>
+              <DropdownMenuItem className="sm:hidden" onClick={() => runSearchNow(true)} disabled={isRunning}>
+                <Sparkles className="h-4 w-4" /> Deep run
+              </DropdownMenuItem>
+              <DropdownMenuSeparator className="sm:hidden" />
+              <DropdownMenuItem onClick={toggleActive}>
+                {topic.active ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                {topic.active ? "Pause" : "Resume"}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setShowDelete(true)}>
+                <Trash2 className="h-4 w-4" /> Delete topic
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
-      {/* Action bar */}
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <Button onClick={() => runSearchNow(false)} disabled={isRunning}>
-          {isRunning ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-          {isRunning ? "Searching…" : "Search now"}
-        </Button>
-        <Button variant="outline" onClick={() => runSearchNow(true)} disabled={isRunning} className="hidden sm:inline-flex">
-          <Sparkles className="h-4 w-4" /> Deep run
-        </Button>
-        <Button variant="outline" onClick={toggleActive} className="hidden sm:inline-flex">
-          {topic.active ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-          {topic.active ? "Pause" : "Resume"}
-        </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="icon" aria-label="More actions">
-              <MoreVertical className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem className="sm:hidden" onClick={() => runSearchNow(true)} disabled={isRunning}>
-              <Sparkles className="h-4 w-4" /> Deep run
-            </DropdownMenuItem>
-            <DropdownMenuItem className="sm:hidden" onClick={toggleActive}>
-              {topic.active ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-              {topic.active ? "Pause" : "Resume"}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator className="sm:hidden" />
-            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setShowDelete(true)}>
-              <Trash2 className="h-4 w-4" /> Delete topic
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
-      {/* Stat tiles */}
+      {/* ---- Stat cards ---- */}
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatTile label="Last run" value={relativeTime(topic.last_run_at)} />
-        <StatTile label="New this week" value={stats.newThisWeek} />
-        <StatTile label="Clusters" value={clusters.length} />
-        <StatTile label="Runs" value={runs.length} />
+        <StatCard icon={Lightbulb}   label="Content angles" value={anglesCount}          sub="ready to use"               accent />
+        <StatCard icon={Layers}      label="Clusters"        value={clusters.length}      sub={`${clusters.length} mentions`} />
+        <StatCard icon={TrendingUp}  label="New this week"   value={stats.newThisWeek}   sub="cluster" />
+        <StatCard icon={Clock}       label="Last run"        value={lastRunAgo}           sub={`ago · ${topic.frequency}`} />
       </div>
 
       {isRunning && (
@@ -280,81 +363,157 @@ export default function TopicDetailPage() {
           Searching sources and building a creator brief. Results update when the worker finishes.
         </div>
       )}
-
       {latestRun?.error_message && !isRunning && (
         <div className="mt-4 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">
           Last run failed: {latestRun.error_message}
         </div>
       )}
 
-      {/* Tabs */}
+      {/* ---- Tabs ---- */}
       <Tabs value={tab} onValueChange={setTab} className="mt-6">
         <TabsList className="flex h-auto w-full justify-start gap-1 overflow-x-auto sm:w-auto">
-          <TabsTrigger value="brief"><FileText className="mr-1.5 h-4 w-4" /> Brief</TabsTrigger>
-          <TabsTrigger value="clusters"><Layers className="mr-1.5 h-4 w-4" /> Clusters {clusters.length > 0 && `(${clusters.length})`}</TabsTrigger>
-          <TabsTrigger value="raw"><ListFilter className="mr-1.5 h-4 w-4" /> Raw results</TabsTrigger>
-          <TabsTrigger value="history"><History className="mr-1.5 h-4 w-4" /> History</TabsTrigger>
+          <TabsTrigger value="angles">
+            <Lightbulb className="mr-1.5 h-4 w-4" /> Angles {anglesCount > 0 && `(${anglesCount})`}
+          </TabsTrigger>
+          <TabsTrigger value="signals">
+            <Layers className="mr-1.5 h-4 w-4" /> Signals {clusters.length > 0 && `(${clusters.length})`}
+          </TabsTrigger>
+          <TabsTrigger value="history">
+            <History className="mr-1.5 h-4 w-4" /> History
+          </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="brief" className="mt-4">
+        {/* ---- ANGLES TAB ---- */}
+        <TabsContent value="angles" className="mt-5 space-y-5">
           {brief ? (
-            <BriefView brief={brief} onSaveAngle={onSaveAngle} onScriptOutline={onScriptOutline} />
+            <>
+              <BriefCard brief={brief} />
+
+              {/* Section header + format filters */}
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div className="flex items-baseline gap-2.5">
+                  <h2 className="text-lg font-semibold text-foreground">Content angles</h2>
+                  {visibleAngles.length > 0 && (
+                    <span className="text-sm text-muted-foreground">
+                      {visibleAngles.length} ranked idea{visibleAngles.length !== 1 ? "s" : ""} · each backed by its signal cluster
+                    </span>
+                  )}
+                </div>
+                {formats.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="Filter by format">
+                    {["All", ...formats].map((f) => (
+                      <button
+                        key={f}
+                        role="tab"
+                        aria-selected={formatFilter === f}
+                        className={cn(
+                          "rounded-full border px-3 py-1 text-xs font-medium transition-colors whitespace-nowrap",
+                          formatFilter === f
+                            ? "bg-primary border-primary text-primary-foreground"
+                            : "border-border bg-background text-muted-foreground hover:text-foreground hover:border-border/80"
+                        )}
+                        onClick={() => setFormatFilter(f)}
+                      >
+                        {f}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {visibleAngles.length > 0 ? (
+                <div className="space-y-3">
+                  {visibleAngles.map((angle, i) => (
+                    <AngleCard
+                      key={i}
+                      angle={angle}
+                      index={i}
+                      hook={hooks[i] || null}
+                      clusters={clusters}
+                      saved={savedSet.has(i)}
+                      active={activeIndex === i}
+                      onOpen={setActiveIndex}
+                      onSave={() => handleSaveAngle(angle, i)}
+                      onScriptOutline={() => handleScriptOutline(angle)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <EmptyState
+                  icon={Lightbulb}
+                  title="No angles match this format"
+                  description="Try selecting All to see all content angles."
+                  actionLabel="Show all"
+                  onAction={() => setFormatFilter("All")}
+                />
+              )}
+            </>
           ) : (
             <EmptyState
               icon={Sparkles}
               title={isRunning ? "Building your brief…" : "No brief yet"}
-              description={isRunning ? "The research run is in progress." : "Run a search to generate a creator brief with angles and hooks."}
+              description={isRunning ? "The research run is in progress." : "Run a search to generate content angles and a creator brief."}
               actionLabel={isRunning ? undefined : "Search now"}
               onAction={isRunning ? undefined : () => runSearchNow(false)}
             />
           )}
         </TabsContent>
 
-        <TabsContent value="clusters" className="mt-4">
+        {/* ---- SIGNALS TAB ---- */}
+        <TabsContent value="signals" className="mt-5">
           {clusters.length > 0 ? (
-            <div className="space-y-3">
-              {clusters.map((cluster) => (
-                <ClusterCard key={cluster.id} cluster={cluster} onSaveIdea={onSaveCluster} onMarkIrrelevant={onMarkIrrelevant} />
-              ))}
+            <div className="space-y-4">
+              <div className="flex items-baseline gap-2.5">
+                <h2 className="text-lg font-semibold text-foreground">Signals</h2>
+                <span className="text-sm text-muted-foreground">
+                  {clusters.length} clusters · ranked by score
+                </span>
+              </div>
+              <div className="space-y-2.5">
+                {clusters.map((cluster) => (
+                  <SignalRow key={cluster.id} cluster={cluster} onSave={handleSaveCluster} />
+                ))}
+              </div>
             </div>
           ) : (
-            <EmptyState icon={Layers} title="No clusters yet" description="Clusters of related discussion appear here after a research run." />
+            <EmptyState
+              icon={Layers}
+              title="No signals yet"
+              description={isRunning ? "Search in progress…" : "Research clusters surface here after a run."}
+            />
           )}
         </TabsContent>
 
-        <TabsContent value="raw" className="mt-4">
-          {loadingHits ? (
-            <div className="space-y-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-24" />)}</div>
-          ) : hits.length > 0 ? (
-            <div className="space-y-3">
-              {hits.map((hit) => <HitCard key={hit.id} hit={hit} onSaveIdea={onSaveHit} />)}
+        {/* ---- HISTORY TAB ---- */}
+        <TabsContent value="history" className="mt-5">
+          <div className="space-y-4">
+            <div className="flex items-baseline gap-2.5">
+              <h2 className="text-lg font-semibold text-foreground">History</h2>
+              {runs.length > 0 && (
+                <span className="text-sm text-muted-foreground">{runs.length} run{runs.length !== 1 ? "s" : ""}</span>
+              )}
             </div>
-          ) : (
-            <EmptyState icon={ListFilter} title="No raw results yet" description={isRunning ? "Search in progress…" : "Individual sources surfaced by a run show up here."} />
-          )}
-        </TabsContent>
-
-        <TabsContent value="history" className="mt-4">
-          {runs.length > 0 ? (
-            <div className="divide-y rounded-lg border bg-card">
-              {runs.map((run) => (
-                <div key={run.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
-                  <div className="min-w-0">
-                    <span className={cn("font-medium capitalize", RUN_STATUS_COLOR[run.status] || "text-foreground")}>{run.status}</span>
-                    {run.error_message && <p className="mt-0.5 truncate text-xs text-muted-foreground">{run.error_message}</p>}
-                  </div>
-                  <div className="flex shrink-0 items-center gap-3 text-xs text-muted-foreground">
-                    <span>{run.total_new_hits || 0} new</span>
-                    <span>{relativeTime(run.created_at)}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <EmptyState icon={History} title="No runs yet" description="Each research run is logged here with its results." />
-          )}
+            <HistoryView runs={runs} />
+          </div>
         </TabsContent>
       </Tabs>
+
+      {/* ---- Angle drawer ---- */}
+      <AngleDrawer
+        angle={activeAngle}
+        index={activeIndex}
+        hook={activeIndex !== null ? (hooks[activeIndex] || null) : null}
+        altHooks={
+          activeIndex !== null
+            ? hooks.filter((_, i) => i !== activeIndex).slice(0, 2)
+            : []
+        }
+        clusters={clusters}
+        saved={activeIndex !== null && savedSet.has(activeIndex)}
+        onSave={() => activeAngle && handleSaveAngle(activeAngle, activeIndex)}
+        onScriptOutline={() => activeAngle && handleScriptOutline(activeAngle)}
+        onClose={() => setActiveIndex(null)}
+      />
 
       <ConfirmDialog
         open={showDelete}
