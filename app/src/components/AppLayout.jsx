@@ -6,7 +6,7 @@ import { supabase } from "../lib/supabase";
 import { logger } from "../lib/logger";
 import {
   Inbox, CalendarDays, Radio, Settings, LogOut,
-  Menu, X, Plus, LayoutGrid, Keyboard, Download,
+  Menu, X, Plus, LayoutGrid, Keyboard, Download, BookOpen, Mic, PenLine,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,8 @@ const navItems = [
   { to: "/board", icon: LayoutGrid, label: "Board" },
   { to: "/calendar", icon: CalendarDays, label: "Calendar" },
   { to: "/topics", icon: Radio, label: "Listening" },
+  { to: "/drafts", icon: PenLine, label: "Drafts" },
+  { to: "/knowledgebase", icon: BookOpen, label: "Knowledgebase" },
 ];
 
 const SHORTCUTS = [
@@ -170,6 +172,9 @@ export default function AppLayout() {
         </nav>
 
         <div className="space-y-0.5 border-t p-2">
+          <NavLink to="/voice" className={sidebarLink}>
+            <Mic className="h-4 w-4" /> Voice
+          </NavLink>
           <NavLink to="/settings" className={sidebarLink}>
             <Settings className="h-4 w-4" /> Settings
           </NavLink>

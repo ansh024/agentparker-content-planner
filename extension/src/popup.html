@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { width: 300px; margin: 0; padding: 14px; font-family: -apple-system, system-ui, sans-serif; color: #1d2226; }
+      h1 { font-size: 14px; margin: 0 0 10px; }
+      label { display: block; font-size: 12px; font-weight: 600; margin: 10px 0 4px; }
+      input { width: 100%; box-sizing: border-box; padding: 7px 8px; font-size: 13px; border: 1px solid #d0d7de; border-radius: 8px; }
+      button { width: 100%; margin-top: 12px; padding: 8px; font-size: 13px; font-weight: 600; color: #fff; background: #0a66c2; border: none; border-radius: 8px; cursor: pointer; }
+      button.secondary { background: #eef3f8; color: #0a66c2; }
+      .status { margin-top: 10px; font-size: 12px; }
+      .status.ok { color: #1a7f37; }
+      .status.err { color: #b42318; }
+      .hint { font-size: 11px; color: #66707a; margin-top: 4px; line-height: 1.4; }
+    </style>
+  </head>
+  <body>
+    <h1>ContentPlanner Assistant</h1>
+
+    <label for="apiBase">ContentPlanner URL</label>
+    <input id="apiBase" type="url" placeholder="https://your-app.vercel.app" />
+
+    <label for="token">Access token</label>
+    <input id="token" type="password" placeholder="Paste your session token" />
+    <p class="hint">In ContentPlanner → Settings → Connect extension, copy your token and paste it here. It's stored only in this extension.</p>
+
+    <button id="save">Connect</button>
+    <button id="capture" class="secondary">Quick-capture this page</button>
+
+    <p id="status" class="status"></p>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

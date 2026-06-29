@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "ContentPlanner Assistant",
+  "version": "0.1.0",
+  "description": "Draft thoughtful, on-voice LinkedIn comments and quick-capture pages into ContentPlanner.",
+  "permissions": ["storage", "activeTab", "tabs", "scripting"],
+  "host_permissions": [
+    "https://www.linkedin.com/*",
+    "https://*.vercel.app/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "src/popup.html",
+    "default_title": "ContentPlanner"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/*"],
+      "js": ["src/selectors.js", "src/content.js"],
+      "css": ["src/content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

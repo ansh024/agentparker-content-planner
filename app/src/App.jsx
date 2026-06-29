@@ -13,6 +13,9 @@ import CalendarPage from "./pages/CalendarPage";
 import TopicsPage from "./pages/TopicsPage";
 import TopicDetailPage from "./pages/TopicDetailPage";
 import SettingsPage from "./pages/SettingsPage";
+import KnowledgebasePage from "./pages/KnowledgebasePage";
+import VoicePage from "./pages/VoicePage";
+import DraftsPage from "./pages/DraftsPage";
 import SharePage from "./pages/SharePage";
 
 function ProtectedRoute({ children }) {
@@ -54,6 +57,9 @@ export default function App() {
                   <Route path="/calendar" element={<CalendarPage />} />
                   <Route path="/topics" element={<TopicsPage />} />
                   <Route path="/topics/:id" element={<TopicDetailPage />} />
+                  <Route path="/drafts" element={<DraftsPage />} />
+                  <Route path="/knowledgebase" element={<KnowledgebasePage />} />
+                  <Route path="/voice" element={<VoicePage />} />
                   <Route path="/settings" element={<SettingsPage />} />
                 </Route>
                 <Route path="*" element={<Navigate to="/inbox" replace />} />

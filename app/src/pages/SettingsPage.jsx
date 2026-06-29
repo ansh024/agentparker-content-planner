@@ -1,14 +1,35 @@
+import { useState } from "react";
 import { useTheme } from "../contexts/ThemeContext";
 import { useAuth } from "../contexts/AuthContext";
-import { Moon, Sun } from "lucide-react";
+import { supabase } from "../lib/supabase";
+import { useToast } from "../contexts/ToastContext";
+import { Moon, Sun, Copy, Puzzle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import PageHeader from "@/components/common/PageHeader";
 
 export default function SettingsPage() {
   const { theme, toggle } = useTheme();
   const { user } = useAuth();
+  const { showToast } = useToast();
+  const [copying, setCopying] = useState(false);
+
+  const copyToken = async () => {
+    setCopying(true);
+    try {
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      if (!token) throw new Error("No active session.");
+      await navigator.clipboard.writeText(token);
+      showToast("Token copied — paste it into the extension popup.", "success");
+    } catch (err) {
+      showToast(err.message || "Could not copy token.", "error");
+    } finally {
+      setCopying(false);
+    }
+  };
+
   const isInstalled =
     typeof window !== "undefined" &&
     window.matchMedia &&
@@ -93,6 +114,26 @@ export default function SettingsPage() {
           <CardContent>
             <p className="text-xs text-muted-foreground">Signed in as</p>
             <p className="text-sm font-medium text-foreground">{user?.email}</p>
+          </CardContent>
+        </Card>
+
+        {/* Connect extension */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <Puzzle className="h-4 w-4" /> Connect extension
+            </CardTitle>
+            <CardDescription>
+              The ContentPlanner Chrome extension drafts on-voice LinkedIn comments. Copy your token and paste it into the extension popup.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Button variant="outline" size="sm" onClick={copyToken} disabled={copying}>
+              <Copy className="mr-1.5 h-4 w-4" /> {copying ? "Copying…" : "Copy access token"}
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              The token is tied to your current session and stays only in the extension. Re-copy it if your session changes.
+            </p>
           </CardContent>
         </Card>
 

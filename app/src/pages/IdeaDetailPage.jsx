@@ -8,7 +8,7 @@ import { friendlyError, mapSupabaseError } from "../lib/errors";
 import { getIdeaMedia, getIdeaNotes, getImportStatus, getImportWarnings } from "../lib/ideaImport";
 import {
   ArrowLeft, ExternalLink, Calendar, Trash2, Edit3, Save, Sparkles,
-  Lightbulb, FileText, Loader2, RefreshCw, Copy,
+  Lightbulb, FileText, Loader2, RefreshCw, Copy, BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,11 @@ import {
 import {
   Tooltip, TooltipTrigger, TooltipContent,
 } from "@/components/ui/tooltip";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu";
+import { KB_KINDS, promoteIdea } from "../lib/kb";
+import RepurposePanel from "@/components/drafts/RepurposePanel";
 import HelpButton from "@/components/common/HelpButton";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import StatusBadge, { IDEA_STATUSES, STATUS_LABELS } from "@/components/common/StatusBadge";
@@ -138,6 +143,15 @@ export default function IdeaDetailPage() {
       }
     } finally {
       setAiLoading("");
+    }
+  };
+
+  const promoteToKb = async (kind) => {
+    try {
+      await promoteIdea(id, kind);
+      showToast("Added to your knowledgebase.", "success");
+    } catch (err) {
+      showToast(err.message, "error");
     }
   };
 
@@ -419,6 +433,19 @@ export default function IdeaDetailPage() {
 
         <Separator />
 
+        {/* Repurpose into platform drafts */}
+        <div className="space-y-3 p-4">
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">Repurpose</h2>
+            <p className="text-xs text-muted-foreground">
+              Turn this idea into platform-native drafts, grounded in your knowledgebase and voice.
+            </p>
+          </div>
+          <RepurposePanel ideaId={id} />
+        </div>
+
+        <Separator />
+
         {/* Actions */}
         <div className="flex flex-wrap items-center gap-2 p-4">
           <Select value={idea.status} onValueChange={updateStatus}>
@@ -438,6 +465,21 @@ export default function IdeaDetailPage() {
             </TooltipTrigger>
             <TooltipContent>Refresh</TooltipContent>
           </Tooltip>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm">
+                <BookOpen className="h-4 w-4" /> Save to KB
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuLabel>Add to knowledgebase as…</DropdownMenuLabel>
+              {KB_KINDS.map((k) => (
+                <DropdownMenuItem key={k.value} onClick={() => promoteToKb(k.value)}>
+                  {k.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <div className="flex-1" />
           <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => setConfirmDelete(true)}>
             <Trash2 className="h-4 w-4" /> Delete

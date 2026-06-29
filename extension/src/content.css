@@ -1,0 +1,67 @@
+.cp-comment-btn {
+  margin-left: 8px;
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0a66c2;
+  background: transparent;
+  border: 1px solid #0a66c2;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.cp-comment-btn:hover {
+  background: #0a66c2;
+  color: #fff;
+}
+.cp-comment-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.cp-panel {
+  position: relative;
+  margin: 8px 16px 16px;
+  padding: 12px 12px 8px;
+  border: 1px solid #d0d7de;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.cp-option {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 8px 0;
+  border-bottom: 1px solid #e5e9ef;
+}
+.cp-option:last-of-type { border-bottom: none; }
+.cp-option p {
+  flex: 1;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #1d2226;
+  white-space: pre-wrap;
+}
+.cp-copy {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: #0a66c2;
+  border: none;
+  border-radius: 14px;
+  cursor: pointer;
+}
+.cp-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  border: none;
+  background: transparent;
+  color: #66707a;
+  font-size: 13px;
+  cursor: pointer;
+}
+.cp-empty { margin: 4px 0; font-size: 13px; color: #66707a; }
