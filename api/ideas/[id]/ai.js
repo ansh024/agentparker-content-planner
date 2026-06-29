@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { w } from "../../_w.js";
+import { buildContext } from "../../_ai.js";
 
 const ACTIONS = new Set(["brief", "hooks", "script"]);
 
@@ -32,7 +33,15 @@ export default async function handler(nodeReq, nodeRes) {
   }
 
   try {
-    const output = await generateIdeaOutput(action, idea);
+    // M1 grounding: pull the user's KB facts + voice so brief/hooks/script are
+    // factually theirs and on-voice. Best-effort — never block generation on it.
+    let grounding = { kbBlock: "", voiceBlock: "" };
+    try {
+      const query = [idea.title, idea.context_text, idea.ai_summary].filter(Boolean).join(" ").slice(0, 1000);
+      grounding = await buildContext(supabase, { userId: user.id, query });
+    } catch { /* grounding is optional */ }
+
+    const output = await generateIdeaOutput(action, idea, grounding);
     const metadata = {
       ...(idea.metadata || {}),
       ai: {
@@ -78,9 +87,14 @@ function sourceContext(idea) {
   };
 }
 
-function promptForAction(action, idea) {
+function promptForAction(action, idea, grounding = {}) {
   const ctx = sourceContext(idea);
+  const groundingBlock = [
+    grounding.voiceBlock ? `The creator's writing voice — match it:\n${grounding.voiceBlock}` : "",
+    grounding.kbBlock ? `Relevant facts from the creator's knowledgebase (ground in these; don't invent):\n${grounding.kbBlock}` : "",
+  ].filter(Boolean).join("\n\n");
   const base = `You are helping a creator turn saved inspiration into original content ideas.
+${groundingBlock ? `\n${groundingBlock}\n` : ""}
 
 Platform: ${ctx.platform}
 Media type: ${ctx.mediaType}
@@ -124,8 +138,8 @@ The script must be original and inspired by the source, not a paraphrase.
 Return only valid JSON.`;
 }
 
-async function generateIdeaOutput(action, idea) {
-  const prompt = promptForAction(action, idea);
+async function generateIdeaOutput(action, idea, grounding) {
+  const prompt = promptForAction(action, idea, grounding);
   const text = process.env.OPENAI_API_KEY
     ? await generateWithOpenAI(prompt)
     : await generateWithAnthropic(prompt);
