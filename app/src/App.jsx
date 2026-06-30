@@ -16,6 +16,7 @@ import SettingsPage from "./pages/SettingsPage";
 import KnowledgebasePage from "./pages/KnowledgebasePage";
 import VoicePage from "./pages/VoicePage";
 import DraftsPage from "./pages/DraftsPage";
+import TodayPage from "./pages/TodayPage";
 import SharePage from "./pages/SharePage";
 
 function ProtectedRoute({ children }) {
@@ -51,6 +52,7 @@ export default function App() {
                     </ProtectedRoute>
                   }
                 >
+                  <Route path="/today" element={<TodayPage />} />
                   <Route path="/inbox" element={<InboxPage />} />
                   <Route path="/inbox/:id" element={<IdeaDetailPage />} />
                   <Route path="/board" element={<BoardPage />} />
@@ -62,7 +64,7 @@ export default function App() {
                   <Route path="/voice" element={<VoicePage />} />
                   <Route path="/settings" element={<SettingsPage />} />
                 </Route>
-                <Route path="*" element={<Navigate to="/inbox" replace />} />
+                <Route path="*" element={<Navigate to="/today" replace />} />
               </Routes>
               </TooltipProvider>
             </ToastProvider>

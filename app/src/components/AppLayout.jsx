@@ -6,7 +6,7 @@ import { supabase } from "../lib/supabase";
 import { logger } from "../lib/logger";
 import {
   Inbox, CalendarDays, Radio, Settings, LogOut,
-  Menu, X, Plus, LayoutGrid, Keyboard, Download, BookOpen, Mic, PenLine,
+  Menu, X, Plus, LayoutGrid, Keyboard, Download, BookOpen, Mic, PenLine, LayoutDashboard,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,7 @@ import HelpButton from "@/components/common/HelpButton";
 const log = logger("AppLayout");
 
 const navItems = [
+  { to: "/today", icon: LayoutDashboard, label: "Today" },
   { to: "/inbox", icon: Inbox, label: "Inbox" },
   { to: "/board", icon: LayoutGrid, label: "Board" },
   { to: "/calendar", icon: CalendarDays, label: "Calendar" },

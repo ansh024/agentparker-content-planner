@@ -17,6 +17,7 @@ File-number order (01,02,03,04,05) ≠ milestone order — the milestone is auth
 | `093e10c` | **M1 — Knowledgebase + Voice** | pgvector RAG + voice profile + shared `api/_ai.js` |
 | `89ac6ae` | **M2 — Repurposing engine** | 1 idea → LinkedIn drafts, client fan-out, `content_drafts` |
 | `623aceb` | **M3 — Chrome extension** | LinkedIn comment assistant + quick-capture, pinned CORS |
+| _(this batch)_ | **M4 — Scale & Ops** | Today dashboard, batch repurpose, fill-my-week, daily targets |
 
 ### M1 — Knowledgebase + Voice
 - **Migration:** `supabase/migrations/20260630000000_knowledgebase_and_voice.sql`
@@ -73,6 +74,20 @@ File-number order (01,02,03,04,05) ≠ milestone order — the milestone is auth
   `src/popup.*`. See `extension/README.md` for the dev loop.
 - **Web app:** Settings → "Connect extension" copies the session token.
 
+### M4 — Scale & Content Ops
+- **Migration:** `supabase/migrations/20260630020000_scale_ops.sql` — adds
+  `profiles.daily_targets jsonb`. The batch comment queue / `engagement_queue`
+  was CUT at the gate and is deliberately NOT created.
+- **API:** `GET /api/ops/today` (aggregated dashboard: triage, drafts to review,
+  scheduled, listening angles, targets + posted-today progress),
+  `POST /api/ops/targets`, `POST /api/repurpose/batch` (N ideas × platforms →
+  draft rows; client fans out generate-one — same Vercel-safe pattern),
+  `POST /api/plan/week` ("fill my week": proposes a balanced week from KB +
+  listening + inbox, writes `content_plans`).
+- **UI:** `app/src/pages/TodayPage.jsx` (new landing page; `*` and post-login go
+  to `/today`), `app/src/components/ops/BatchRepurposeDialog.jsx`,
+  `app/src/lib/ops.js`. "Today" added as first nav item.
+
 ### Review applied (no PR — direct diff review)
 All 3 Eng-criticals verified implemented. 3 fixes applied during review:
 (1) `buildContext` resolves retrieval + voice independently (voice survives if
@@ -84,8 +99,9 @@ embeddings are down); (2) `_learn.js` missing-table detection broadened
 ## ⏳ Pending
 
 ### Operational (must do before any of the above works in prod — code can't do these)
-1. **Apply both migrations** to Supabase:
-   `20260630000000_knowledgebase_and_voice.sql`, `20260630010000_content_drafts.sql`.
+1. **Apply all three migrations** to Supabase:
+   `20260630000000_knowledgebase_and_voice.sql`, `20260630010000_content_drafts.sql`,
+   `20260630020000_scale_ops.sql`.
 2. **Vercel env vars** (see `.env.example`):
    - `OPENAI_API_KEY` — **required** for embeddings (KB + grounding).
    - `EMBEDDING_MODEL` — defaults to `text-embedding-3-small` (must stay 1536-dim).
@@ -97,9 +113,6 @@ embeddings are down); (2) `_learn.js` missing-table detection broadened
    returns hits once data exists. This is the one thing not verifiable without a live DB.
 
 ### Remaining milestones
-- **M4 — Scale & Content Ops** ([05-scale-ops.md](05-scale-ops.md)): "today"
-  dashboard, batch repurpose, "fill my week", daily targets/streak, optional
-  digest. **Batch comment queue was CUT at the gate** (slop-by-construction).
 - **M5 — Learning Layer / Honcho** ([04-learning-honcho.md](04-learning-honcho.md)):
   `learning_events` table, `api/_learn.js` Honcho wrapper, nightly `voice_profile`
   refresh, light-edit ship-rate metric. **A/B-gated; never on the generation hot
