@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Mic, Sparkles, RefreshCw } from "lucide-react";
+import { Mic, Sparkles, RefreshCw, Plus, X } from "lucide-react";
 import { useToast } from "../contexts/ToastContext";
 import { getVoiceProfile, bootstrapVoice, updateVoiceProfile } from "../lib/kb";
 import PageHeader from "@/components/common/PageHeader";
@@ -74,32 +74,79 @@ export default function VoicePage() {
   );
 }
 
+// Chip-style input: type and press Enter (or comma) to add a value.
+function TagInput({ id, values, onChange, placeholder }) {
+  const [draft, setDraft] = useState("");
+
+  const commit = (raw) => {
+    const v = raw.trim().replace(/,$/, "").trim();
+    if (v && !values.includes(v)) onChange([...values, v]);
+    setDraft("");
+  };
+
+  const remove = (i) => onChange(values.filter((_, idx) => idx !== i));
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-input bg-transparent px-2 py-1.5 focus-within:ring-1 focus-within:ring-ring">
+      {values.map((v, i) => (
+        <Badge key={`${v}-${i}`} variant="secondary" className="gap-1 pr-1">
+          {v}
+          <button
+            type="button"
+            onClick={() => remove(i)}
+            className="rounded-sm opacity-60 hover:opacity-100"
+            aria-label={`Remove ${v}`}
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </Badge>
+      ))}
+      <input
+        id={id}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === ",") {
+            e.preventDefault();
+            commit(draft);
+          } else if (e.key === "Backspace" && !draft && values.length) {
+            remove(values.length - 1);
+          }
+        }}
+        onBlur={() => draft && commit(draft)}
+        placeholder={values.length ? "" : placeholder}
+        className="min-w-[8ch] flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+      />
+    </div>
+  );
+}
+
 function BootstrapForm({ onDone, onCancel }) {
   const { showToast } = useToast();
-  const [samples, setSamples] = useState("");
-  const [knownFor, setKnownFor] = useState("");
-  const [take, setTake] = useState("");
-  const [neverSay, setNeverSay] = useState("");
+  const [posts, setPosts] = useState([""]);
+  const [knownFor, setKnownFor] = useState([]);
+  const [take, setTake] = useState([]);
+  const [neverSay, setNeverSay] = useState([]);
   const [running, setRunning] = useState(false);
+
+  const updatePost = (i, v) => setPosts((prev) => prev.map((p, idx) => (idx === i ? v : p)));
+  const addPost = () => setPosts((prev) => [...prev, ""]);
+  const removePost = (i) => setPosts((prev) => (prev.length === 1 ? [""] : prev.filter((_, idx) => idx !== i)));
 
   const submit = async (e) => {
     e.preventDefault();
-    // Split on lines of 3+ dashes, or fall back to double-newline blocks.
-    const parts = samples.includes("---")
-      ? samples.split(/\n-{3,}\n?/)
-      : samples.split(/\n\s*\n/);
-    const cleaned = parts.map((s) => s.trim()).filter((s) => s.length > 20);
+    const cleaned = posts.map((s) => s.trim()).filter((s) => s.length > 20);
     if (cleaned.length === 0) {
-      showToast("Paste at least one full post (separate multiple with a blank line).", "error");
+      showToast("Add at least one full post (20+ characters).", "error");
       return;
     }
     setRunning(true);
     try {
       const { profile } = await bootstrapVoice({
         samples: cleaned,
-        known_for: knownFor.trim() || undefined,
-        defendable_take: take.trim() || undefined,
-        never_say: neverSay.trim() || undefined,
+        known_for: knownFor.join("; ") || undefined,
+        defendable_take: take.join("; ") || undefined,
+        never_say: neverSay.join("; ") || undefined,
       });
       showToast(`Voice learned from ${cleaned.length} posts.`, "success");
       onDone(profile);
@@ -113,33 +160,52 @@ function BootstrapForm({ onDone, onCancel }) {
   return (
     <form onSubmit={submit} className="space-y-5 rounded-xl border bg-card p-5">
       <div className="space-y-1.5">
-        <Label htmlFor="vp-samples">Your best posts</Label>
+        <Label>Your best posts</Label>
         <p className="text-xs text-muted-foreground">
-          Paste 5–10 posts. Separate each with a blank line (or a line of <code>---</code>).
+          Add 5–10 posts — one per box. The more you add, the better we learn your voice.
         </p>
-        <Textarea
-          id="vp-samples"
-          required
-          rows={12}
-          value={samples}
-          onChange={(e) => setSamples(e.target.value)}
-          placeholder={"First post…\n\nSecond post…\n\nThird post…"}
-        />
+        <div className="space-y-2">
+          {posts.map((post, i) => (
+            <div key={i} className="relative">
+              <Textarea
+                rows={5}
+                value={post}
+                onChange={(e) => updatePost(i, e.target.value)}
+                placeholder={`Post ${i + 1}…`}
+                className="pr-9"
+              />
+              {(posts.length > 1 || post) && (
+                <button
+                  type="button"
+                  onClick={() => removePost(i)}
+                  className="absolute right-2 top-2 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  aria-label={`Remove post ${i + 1}`}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={addPost} className="mt-1">
+          <Plus className="mr-1.5 h-4 w-4" /> Add another post
+        </Button>
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="space-y-1.5">
           <Label htmlFor="vp-known">Known for</Label>
-          <Input id="vp-known" value={knownFor} onChange={(e) => setKnownFor(e.target.value)} placeholder="e.g. B2B growth" />
+          <TagInput id="vp-known" values={knownFor} onChange={setKnownFor} placeholder="e.g. B2B growth" />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="vp-take">A take you'll defend</Label>
-          <Input id="vp-take" value={take} onChange={(e) => setTake(e.target.value)} placeholder="e.g. cold email is dead" />
+          <Label htmlFor="vp-take">Takes you'll defend</Label>
+          <TagInput id="vp-take" values={take} onChange={setTake} placeholder="e.g. cold email is dead" />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="vp-never">Words you'd never use</Label>
-          <Input id="vp-never" value={neverSay} onChange={(e) => setNeverSay(e.target.value)} placeholder="e.g. 'in today's world'" />
+          <TagInput id="vp-never" values={neverSay} onChange={setNeverSay} placeholder="e.g. 'in today's world'" />
         </div>
       </div>
+      <p className="-mt-2 text-[11px] text-muted-foreground">Press Enter or comma to add each entry.</p>
       <div className="flex gap-2">
         <Button type="submit" disabled={running}>
           <Sparkles className="mr-1.5 h-4 w-4" />
