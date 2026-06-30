@@ -1,14 +1,200 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTheme } from "../contexts/ThemeContext";
 import { useAuth } from "../contexts/AuthContext";
 import { supabase } from "../lib/supabase";
 import { useToast } from "../contexts/ToastContext";
-import { Moon, Sun, Copy, Puzzle } from "lucide-react";
+import {
+  Moon, Sun, Copy, Puzzle, Eye, EyeOff, Check, Loader2, KeyRound, AlertCircle,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import PageHeader from "@/components/common/PageHeader";
+import { getSettings, saveSettings } from "@/lib/settings";
+
+const KEY_META = [
+  {
+    key: "OPENROUTER_API_KEY",
+    label: "OpenRouter API Key",
+    description: "Enables Deep Research (~$0.90/run via Perplexity sonar-deep-research).",
+    placeholder: "sk-or-v1-…",
+    link: "https://openrouter.ai/keys",
+    linkLabel: "Get key →",
+  },
+  {
+    key: "FIRECRAWL_API_KEY",
+    label: "Firecrawl API Key",
+    description: "Web search & scraping for listening runs.",
+    placeholder: "fc-…",
+    link: "https://firecrawl.dev",
+    linkLabel: "Get key →",
+  },
+  {
+    key: "ANTHROPIC_API_KEY",
+    label: "Anthropic API Key",
+    description: "AI enrichment and listening analysis (falls back to Claude subscription).",
+    placeholder: "sk-ant-…",
+    link: "https://console.anthropic.com/keys",
+    linkLabel: "Get key →",
+  },
+  {
+    key: "SCRAPECREATORS_API_KEY",
+    label: "ScrapeCreators API Key",
+    description: "Enables TikTok, Instagram, and Threads sources in listening runs.",
+    placeholder: "sc-…",
+    link: "https://scrapecreators.com",
+    linkLabel: "Get key →",
+  },
+];
+
+function ApiKeyField({ meta, value, onChange, revealed, onToggleReveal }) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <Label htmlFor={meta.key} className="text-sm font-medium">
+          {meta.label}
+        </Label>
+        {meta.link && (
+          <a
+            href={meta.link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[11px] text-primary hover:underline"
+          >
+            {meta.linkLabel}
+          </a>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground">{meta.description}</p>
+      <div className="relative">
+        <Input
+          id={meta.key}
+          type={revealed ? "text" : "password"}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={meta.placeholder}
+          className="pr-10 font-mono text-xs"
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <button
+          type="button"
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+          onClick={onToggleReveal}
+          aria-label={revealed ? "Hide key" : "Show key"}
+        >
+          {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ApiKeysCard() {
+  const [values, setValues] = useState(Object.fromEntries(KEY_META.map((m) => [m.key, ""])));
+  const [revealed, setRevealed] = useState(Object.fromEntries(KEY_META.map((m) => [m.key, false])));
+  const [keyStatus, setKeyStatus] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    getSettings()
+      .then(({ settings, keyStatus: ks }) => {
+        setValues(Object.fromEntries(KEY_META.map((m) => [m.key, settings[m.key] || ""])));
+        setKeyStatus(ks || {});
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await saveSettings(values);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+      // Reload to get fresh masked values + keyStatus
+      const fresh = await getSettings();
+      setValues(Object.fromEntries(KEY_META.map((m) => [m.key, fresh.settings[m.key] || ""])));
+      setKeyStatus(fresh.keyStatus || {});
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2">
+          <KeyRound className="h-4 w-4 text-primary" />
+          <CardTitle className="text-sm">API Keys</CardTitle>
+        </div>
+        <CardDescription>
+          Keys are stored securely in your account and injected into research runs.
+          Leave a field blank to use the server default.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading…
+          </div>
+        ) : (
+          <>
+            <div className="space-y-5">
+              {KEY_META.map((meta) => (
+                <div key={meta.key} className="space-y-1.5">
+                  <ApiKeyField
+                    meta={meta}
+                    value={values[meta.key]}
+                    onChange={(v) => setValues((prev) => ({ ...prev, [meta.key]: v }))}
+                    revealed={revealed[meta.key]}
+                    onToggleReveal={() =>
+                      setRevealed((prev) => ({ ...prev, [meta.key]: !prev[meta.key] }))
+                    }
+                  />
+                  {keyStatus[meta.key] && (
+                    <p className="flex items-center gap-1 text-[11px] text-green-600 dark:text-green-400">
+                      <Check className="h-3 w-3" /> Key saved
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+            <Button
+              onClick={handleSave}
+              disabled={saving}
+              className="w-full gap-2"
+            >
+              {saving ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</>
+              ) : saved ? (
+                <><Check className="h-4 w-4" /> Saved</>
+              ) : (
+                "Save API keys"
+              )}
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function SettingsPage() {
   const { theme, toggle } = useTheme();
@@ -37,9 +223,12 @@ export default function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-2xl p-4 sm:p-6">
-      <PageHeader title="Settings" subtitle="Personalize ContentPlanner and set up one-tap capture." />
+      <PageHeader title="Settings" subtitle="Manage your API keys, appearance, and one-tap capture." />
 
       <div className="space-y-6">
+        {/* API Keys */}
+        <ApiKeysCard />
+
         {/* Appearance */}
         <Card>
           <CardHeader className="pb-3">
