@@ -8,6 +8,13 @@
 
 const KEYS = { token: "cp_token", apiBase: "cp_api_base" };
 
+// Clicking the toolbar icon opens the docked side panel (no popup).
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.sidePanel
+    ?.setPanelBehavior({ openPanelOnActionClick: true })
+    .catch((err) => console.warn("setPanelBehavior failed", err));
+});
+
 async function getConfig() {
   const v = await chrome.storage.local.get([KEYS.token, KEYS.apiBase]);
   return { token: v[KEYS.token] || "", apiBase: (v[KEYS.apiBase] || "").replace(/\/$/, "") };
@@ -15,8 +22,8 @@ async function getConfig() {
 
 async function apiPost(path, payload) {
   const { token, apiBase } = await getConfig();
-  if (!apiBase) throw new Error("Set your ContentPlanner URL in the extension popup.");
-  if (!token) throw new Error("Connect your account in the extension popup.");
+  if (!apiBase) throw new Error("Set your ContentPlanner URL in the side panel.");
+  if (!token) throw new Error("Connect your account in the side panel.");
 
   const res = await fetch(`${apiBase}${path}`, {
     method: "POST",
@@ -24,7 +31,7 @@ async function apiPost(path, payload) {
     body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => ({}));
-  if (res.status === 401) throw new Error("Session expired — reconnect in the popup.");
+  if (res.status === 401) throw new Error("Session expired — reconnect in the side panel.");
   if (!res.ok) throw new Error(data.error || "Request failed.");
   return data;
 }

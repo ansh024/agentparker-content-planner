@@ -10,7 +10,10 @@ ToS automation risk (see `docs/plans/scaling-hub/03-chrome-extension.md`).
   author are scraped and sent to your ContentPlanner API, which returns 2–3
   thoughtful, on-voice comment options grounded in your knowledgebase. Copy the
   one you like.
-- Popup **Quick-capture this page** → saves the current tab to your Inbox.
+- Clicking the toolbar icon opens a docked **side panel** (Chrome's Side Panel
+  API) with connection status, **Save to Inbox** quick-capture, a manual
+  **Draft a comment** generator, and connection settings — all in one persistent
+  sidebar instead of a transient popup.
 
 ## Architecture
 - `src/background.js` — service worker. **The only place the access token
@@ -19,7 +22,8 @@ ToS automation risk (see `docs/plans/scaling-hub/03-chrome-extension.md`).
 - `src/content.js` + `src/selectors.js` — inject the button, scrape the post.
   All LinkedIn DOM selectors are in `selectors.js` (LinkedIn changes markup
   often — fix breakage there, with fallbacks).
-- `src/popup.*` — connect your account (URL + token) and quick-capture.
+- `src/sidepanel.*` — the docked side panel: connect your account (URL + token),
+  quick-capture, and draft comments.
 
 ## Dev loop
 1. Build the API + set env on the server:
@@ -32,8 +36,9 @@ ToS automation risk (see `docs/plans/scaling-hub/03-chrome-extension.md`).
    - Copy the generated **extension ID**, set `EXTENSION_ORIGIN` to
      `chrome-extension://<id>` on the server, and redeploy/restart so CORS
      allows it.
-4. Open the popup → paste your **ContentPlanner URL** and **access token**
-   (from the web app → Settings → Connect extension).
+4. Click the toolbar icon to open the **side panel** → expand **Connection
+   settings** → paste your **ContentPlanner URL** and **access token** (from the
+   web app → Settings → Connect extension).
 5. After editing a file, hit the **reload** icon on the extension card.
 
 ## Security notes

@@ -33,3 +33,6 @@ scripts/tests/screenshots/
 .vercel
 __pycache__/
 *.pyc
+
+# Claude Code local config
+.claude/
