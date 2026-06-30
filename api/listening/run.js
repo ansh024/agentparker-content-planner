@@ -7,7 +7,25 @@ async function currentUser(authHeader) {
   return user;
 }
 
-async function notifyWorker({ runId, topicId, userId, deep }) {
+const USER_CONFIG_KEYS = [
+  "OPENROUTER_API_KEY",
+  "FIRECRAWL_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "SCRAPECREATORS_API_KEY",
+];
+
+async function fetchUserConfig(supabase, userId) {
+  const { data } = await supabase
+    .from("user_settings")
+    .select("settings")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const raw = data?.settings || {};
+  // Only pass non-empty keys to the worker
+  return Object.fromEntries(USER_CONFIG_KEYS.filter((k) => raw[k]).map((k) => [k, raw[k]]));
+}
+
+async function notifyWorker({ runId, topicId, userId, deep, config }) {
   const workerUrl = process.env.LISTENING_WORKER_URL;
   if (!workerUrl) {
     return {
@@ -25,7 +43,7 @@ async function notifyWorker({ runId, topicId, userId, deep }) {
         "Content-Type": "application/json",
         ...(process.env.WORKER_SHARED_SECRET ? { "x-worker-secret": process.env.WORKER_SHARED_SECRET } : {}),
       },
-      body: JSON.stringify({ run_id: runId, topic_id: topicId, user_id: userId, deep: Boolean(deep) }),
+      body: JSON.stringify({ run_id: runId, topic_id: topicId, user_id: userId, deep: Boolean(deep), config: config || {} }),
       signal: controller.signal,
     });
     const payload = await response.json().catch(() => ({}));
@@ -98,11 +116,14 @@ export default async function handler(nodeReq, nodeRes) {
 
   if (runError) return res.json({ error: "Couldn't queue research run." }, 500);
 
+  const userConfig = await fetchUserConfig(supabase, user.id);
+
   const workerResult = await notifyWorker({
     runId: run.id,
     topicId: topic.id,
     userId: user.id,
     deep,
+    config: userConfig,
   });
 
   return res.json({

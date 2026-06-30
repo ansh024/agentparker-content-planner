@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Optional
 
 from dotenv import load_dotenv
@@ -12,7 +13,9 @@ from supabase import create_client
 
 from bridge import run_last30days, sync_report_to_supabase, utc_now
 
-load_dotenv()
+_here = Path(__file__).parent
+load_dotenv(_here / ".env")           # worker-local overrides (optional)
+load_dotenv(_here.parent / ".env")    # project root (OPENROUTER_API_KEY etc.)
 
 app = FastAPI(title="ContentPlanner Listening Worker")
 
@@ -22,6 +25,8 @@ class RunTopicRequest(BaseModel):
     run_id: Optional[str] = None
     user_id: Optional[str] = None
     deep: bool = False
+    # API keys the user stored in Settings — override env vars for this run
+    config: Optional[dict] = None
 
 
 def require_secret(x_worker_secret: Optional[str]) -> None:
@@ -101,7 +106,9 @@ def run_topic(payload: RunTopicRequest, x_worker_secret: Optional[str] = Header(
     run_id = create_or_start_run(client, topic, payload.run_id)
 
     try:
-        report, raw_path = run_last30days(topic, deep=payload.deep)
+        # Apply user-supplied API keys for this run (overrides env without mutating globally)
+        run_env_overrides = {k: v for k, v in (payload.config or {}).items() if v}
+        report, raw_path = run_last30days(topic, deep=payload.deep, env_overrides=run_env_overrides)
         stats = sync_report_to_supabase(client, topic, run_id, report, raw_path)
         return {"ok": True, "run_id": run_id, **stats}
     except Exception as exc:

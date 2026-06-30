@@ -1,7 +1,8 @@
 import { formatDistanceToNow } from "date-fns";
-import { MessageSquare, Code, Youtube, Globe, Quote, Bookmark } from "lucide-react";
+import { MessageSquare, Code, Youtube, Globe, Quote, Bookmark, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { firstCitation, citationUrl } from "@/lib/listening";
 
 // Detect platform from metadata or source URL
 function detectPlatform(cluster) {
@@ -58,6 +59,7 @@ export default function SignalRow({ cluster, compact = false, onSave }) {
   const platform = detectPlatform(cluster);
   const age = relativeAge(cluster.created_at);
   const score = cluster.score ? Math.round(Number(cluster.score)) : null;
+  const sourceUrl = citationUrl(firstCitation(cluster));
 
   return (
     <div className={cn(
@@ -88,7 +90,21 @@ export default function SignalRow({ cluster, compact = false, onSave }) {
 
       {/* Title */}
       {cluster.title && (
-        <p className="mt-2 text-sm font-medium text-foreground leading-snug">{cluster.title}</p>
+        <div className="mt-2 flex items-start gap-1.5">
+          <p className="flex-1 text-sm font-medium text-foreground leading-snug">{cluster.title}</p>
+          {compact && sourceUrl && (
+            <a
+              href={sourceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0 mt-0.5 text-muted-foreground/50 hover:text-primary transition-colors"
+              aria-label="Open source"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          )}
+        </div>
       )}
 
       {/* Quote / summary */}
@@ -104,13 +120,23 @@ export default function SignalRow({ cluster, compact = false, onSave }) {
         <p className="mt-1.5 text-[11px] text-muted-foreground/70">{cluster.metadata.engagement}</p>
       )}
 
-      {/* Save button — only on Signals tab (not compact) */}
-      {!compact && onSave && (
-        <div className="mt-3">
-          <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={() => onSave(cluster)}>
-            <Bookmark className="h-3.5 w-3.5" />
-            Save
-          </Button>
+      {/* Footer actions */}
+      {((!compact && onSave) || sourceUrl) && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {!compact && onSave && (
+            <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={() => onSave(cluster)}>
+              <Bookmark className="h-3.5 w-3.5" />
+              Save
+            </Button>
+          )}
+          {sourceUrl && (
+            <Button asChild variant="outline" size="sm" className="h-7 text-xs gap-1.5">
+              <a href={sourceUrl} target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="h-3.5 w-3.5" />
+                Open source
+              </a>
+            </Button>
+          )}
         </div>
       )}
     </div>

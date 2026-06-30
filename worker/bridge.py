@@ -96,7 +96,7 @@ def extract_json(stdout: str) -> dict[str, Any]:
     return json.loads(stdout[start:end + 1])
 
 
-def run_last30days(topic: dict[str, Any], deep: bool = False) -> Tuple[dict[str, Any], Optional[str]]:
+def run_last30days(topic: dict[str, Any], deep: bool = False, env_overrides: Optional[dict] = None) -> Tuple[dict[str, Any], Optional[str]]:
     # Retrieval-only cost model (docs/plans REVIEW.md A1):
     #  * --plan skips the engine's internal *paid* LLM planner. We supply the plan
     #    ourselves: an LLM-generated plan billed to the Claude SUBSCRIPTION
@@ -156,6 +156,9 @@ def run_last30days(topic: dict[str, Any], deep: bool = False) -> Tuple[dict[str,
         cmd.append("--store")
 
     env = os.environ.copy()
+    # User-supplied keys from Settings take precedence over env vars.
+    if env_overrides:
+        env.update({k: v for k, v in env_overrides.items() if v})
     env.setdefault("LAST30DAYS_MEMORY_DIR", str(memory_dir))
     # Do NOT force a paid reasoning provider on scheduled runs. With --plan the
     # planner is skipped; with no paid key the engine reranks heuristically and
