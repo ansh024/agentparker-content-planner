@@ -102,3 +102,91 @@ function flash(btn, msg) {
 const observer = new MutationObserver(() => injectButtons());
 observer.observe(document.body, { childList: true, subtree: true });
 injectButtons();
+
+/* ---------------------------------------------------------------------------
+ * Pick mode — the side panel's "Find a post" button puts the feed into a
+ * hover-to-highlight, click-to-capture state. Clicking a post scrapes its
+ * text + author and ships it back to the panel (no network here).
+ * ------------------------------------------------------------------------- */
+
+let pickActive = false;
+let pickHover = null;
+
+function postUnder(target) {
+  for (const sel of window.CP_SELECTORS.post) {
+    const el = target.closest(sel);
+    if (el) return el;
+  }
+  return null;
+}
+
+function onPickMove(e) {
+  const post = postUnder(e.target);
+  if (post === pickHover) return;
+  pickHover?.classList.remove("cp-pick-hover");
+  pickHover = post;
+  pickHover?.classList.add("cp-pick-hover");
+}
+
+function onPickClick(e) {
+  const post = postUnder(e.target);
+  if (!post) return;
+  e.preventDefault();
+  e.stopPropagation();
+
+  const payload = {
+    postText: window.CP_text(post, window.CP_SELECTORS.postText),
+    authorName: window.CP_text(post, window.CP_SELECTORS.authorName),
+    authorHeadline: window.CP_text(post, window.CP_SELECTORS.authorHeadline),
+  };
+  exitPickMode();
+  chrome.runtime.sendMessage({
+    type: "postPicked",
+    payload,
+    ok: Boolean(payload.postText),
+  });
+}
+
+function enterPickMode() {
+  if (pickActive) return;
+  pickActive = true;
+  document.body.classList.add("cp-picking");
+  if (!document.querySelector(".cp-pick-banner")) {
+    const banner = document.createElement("div");
+    banner.className = "cp-pick-banner";
+    banner.textContent = "Click a post to draft a comment · Esc to cancel";
+    document.body.appendChild(banner);
+  }
+  document.addEventListener("mousemove", onPickMove, true);
+  document.addEventListener("click", onPickClick, true);
+  document.addEventListener("keydown", onPickKey, true);
+}
+
+function exitPickMode() {
+  pickActive = false;
+  document.body.classList.remove("cp-picking");
+  pickHover?.classList.remove("cp-pick-hover");
+  pickHover = null;
+  document.querySelector(".cp-pick-banner")?.remove();
+  document.removeEventListener("mousemove", onPickMove, true);
+  document.removeEventListener("click", onPickClick, true);
+  document.removeEventListener("keydown", onPickKey, true);
+}
+
+function onPickKey(e) {
+  if (e.key === "Escape") {
+    exitPickMode();
+    chrome.runtime.sendMessage({ type: "postPickCancelled" });
+  }
+}
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type === "enterPickMode") {
+    enterPickMode();
+    sendResponse({ ok: true });
+  } else if (msg?.type === "exitPickMode") {
+    exitPickMode();
+    sendResponse({ ok: true });
+  }
+  return true;
+});

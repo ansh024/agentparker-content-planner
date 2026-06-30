@@ -60,6 +60,36 @@ $("capture").addEventListener("click", async () => {
   else setStatus("capStatus", resp?.error || "Could not save.", false);
 });
 
+// --- Find a post on the page (pick mode in the content script) ---
+$("find").addEventListener("click", async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id || !/^https:\/\/www\.linkedin\.com\//.test(tab.url || "")) {
+    return setStatus("findStatus", "Open a LinkedIn feed tab first.", false);
+  }
+  try {
+    await chrome.tabs.sendMessage(tab.id, { type: "enterPickMode" });
+    setStatus("findStatus", "Click the post you want on the page…", true);
+  } catch {
+    setStatus("findStatus", "Reload the LinkedIn tab, then try again.", false);
+  }
+});
+
+// Content script reports the picked post back to the panel.
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg?.type === "postPicked") {
+    if (!msg.ok) {
+      setStatus("findStatus", "Couldn't read that post — try another.", false);
+      return;
+    }
+    $("postText").value = msg.payload.postText || "";
+    $("authorName").value = msg.payload.authorName || "";
+    $("authorHeadline").value = msg.payload.authorHeadline || "";
+    setStatus("findStatus", "Post captured — review and generate.", true);
+  } else if (msg?.type === "postPickCancelled") {
+    setStatus("findStatus", "", true);
+  }
+});
+
 // --- Generate comments ---
 $("generate").addEventListener("click", async () => {
   const postText = $("postText").value.trim();

@@ -2,6 +2,7 @@
   "manifest_version": 3,
   "name": "ContentPlanner Assistant",
   "version": "0.1.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqOqGoOwJPs46Hm6/b1ri88RaM5gPMBjPgvlUBTm53jCoOXy/7fV91V8zJpWncboZ14K2lOugZy0PD/uWWel8lWh99rAy6PfZIh0CW8jECpsAUYSBQMiPwxjZQn85mUfWgVLQs3S4t+z6TDob30/2A7LygRCOHch1gnnFVe7SYdURlJTUPKGvZEa0cJI6Adu3muEEIO/82R4blLtQwZ/TIBAYBpejKnQqXsxWOBOMe15r+EAV5/7a5/FvHdEOmPGAnfYdVRj3ZTFcQqdMULdJA+6jpBIyIyBtV4XVAY/R9GAknKqVAVgaDrDCsbFE7FExH/aRnbyGtSazS0zF3H3CZQIDAQAB",
   "description": "Draft thoughtful, on-voice LinkedIn comments and quick-capture pages into ContentPlanner.",
   "permissions": ["storage", "activeTab", "tabs", "scripting", "sidePanel"],
   "host_permissions": [
